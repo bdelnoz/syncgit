@@ -18,6 +18,12 @@
 # DATE         : 2026-03-03
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.2.1 – 2026-03-03 – Bruno DELNOZ
+#       Bugfix:
+#       - FIXED: git add (and all git cmds) could block indefinitely on repos
+#                containing embedded .git dirs (git awaiting stdin confirmation).
+#                Fixed by redirecting stdin to /dev/null in run_cmd (bash -c/-ic).
+#                (GIT_TERMINAL_PROMPT left untouched – preserves HTTPS credentials.)
 #   v1.2.0 – 2026-03-03 – Bruno DELNOZ
 #       Bugfixes:
 #       - FIXED: cd without returning to original dir in repo loop (pushd/popd)
@@ -59,7 +65,7 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.2.1"
 SCRIPT_DATE="2026-03-03"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
@@ -226,10 +232,12 @@ run_cmd() {
     local exit_code=0
     if [[ "${CMD_MODE}" == "bash-i" ]]; then
         # Interactive bash: loads ~/.bashrc and shell aliases
-        bash -ic "${cmd_str}" || exit_code=$?
+        # Stdin redirected from /dev/null: prevents git (or any sub-cmd) from
+        # blocking on a credential/confirmation prompt when there is no terminal.
+        bash -ic "${cmd_str}" < /dev/null || exit_code=$?
     else
         # Direct bash: standard non-interactive execution
-        bash -c "${cmd_str}" || exit_code=$?
+        bash -c "${cmd_str}" < /dev/null || exit_code=$?
     fi
 
     if [[ "${exit_code}" -ne 0 ]]; then
@@ -428,6 +436,15 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.2.1 – 2026-03-03 – Bruno DELNOZ
+  - FIXED: git add (and any git cmd) could hang indefinitely on repos with
+           embedded .git dirs (nested submodule-like repos not yet registered).
+           Git was waiting for interactive stdin that never arrives.
+           Fix: run_cmd now redirects stdin < /dev/null for both bash -c and
+           bash -ic modes — no subprocess can block waiting for terminal input.
+           (GIT_TERMINAL_PROMPT intentionally left untouched to preserve
+           credential prompts for HTTPS push.)
 
 ## v1.2.0 – 2026-03-03 – Bruno DELNOZ
   - FIXED: cd without returning to original dir in repo loop (pushd/popd)
