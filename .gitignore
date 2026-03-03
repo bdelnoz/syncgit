@@ -1,0 +1,24 @@
+# PROJECT SPECIFIC
+uploads
+*.pid
+__pycache__
+*.log
+*.db
+creation_log
+*-swp
+*.tmp
+*.bak
+# ========================================
+# Template: shell
+# Added: 2026-02-04 22:19:59
+logs/
+output/
+infos/
+result/
+results/
+backup/
+*.zip
+*.tar.gz
+*.rar
+certs/
+secrets/

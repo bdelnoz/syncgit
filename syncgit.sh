@@ -1,0 +1,1172 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# PATH         : ~/scripts/syncgit.sh
+# SCRIPT NAME  : syncgit.sh  (no version in filename – version is inside)
+# AUTHOR       : Bruno DELNOZ
+# EMAIL        : bruno.delnoz@protonmail.com
+# TARGET USAGE : Recursively scans a root directory to find all Git
+#                repositories (directories containing a .git folder),
+#                then for each repo either:
+#                  (a) runs the default Git sync sequence on a chosen branch:
+#                        git checkout <branch>
+#                        git add .
+#                        git commit -m "commit last version done by syncgit.sh"
+#                        git push --set-upstream --force origin <branch>
+#                  (b) runs a custom shell command via --cmd "<cmd>"
+#                      with configurable execution mode (direct or bash-i)
+# VERSION      : v1.2.0
+# DATE         : 2026-03-03
+# ==============================================================================
+# CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.2.0 – 2026-03-03 – Bruno DELNOZ
+#       Bugfixes:
+#       - FIXED: cd without returning to original dir in repo loop (pushd/popd)
+#       - FIXED: RESULT_FILE computed with empty RUN_TS during arg parsing
+#       - FIXED: _check_one() nested inside check_prerequisites() → global scope
+#       - FIXED: read without fallback in install_prerequisites (stdin pipe/cron)
+#       - FIXED: generate_docs() was overwriting ./README.md and ./CHANGELOG.md
+#                on every --exec run → now writes only to ./infos/
+#       - FIXED: find picked up git submodule .git dirs → added prune logic
+#       - ADDED: --branch name validation (rejects spaces and shell-unsafe chars)
+#   v1.1.0 – 2026-02-28 – Bruno DELNOZ
+#       Merged improvements from alternate version (v1.3.0 reference):
+#       Added set -Eeuo pipefail + IFS safety, ts_now/ts_human/die/sep helpers,
+#       --cmd_mode direct|bash-i, --recurrent <seconds>, --root_dir (replaces
+#       --base_dir), --results_dir alias for --dest_dir, --yes for --purge,
+#       SCRIPT_DIR auto-detection, removed version from filename.
+#   v1.0.1 – 2026-02-28 – Bruno DELNOZ
+#       Fixed: gita is a shell alias not a git alias. Added bash -i -c
+#       execution, --cmd option (renamed from --alias).
+#   v1.0.0 – 2026-02-28 – Bruno DELNOZ
+#       Initial release. Recursive git repo scanner, branch switcher, shell
+#       command runner. Full argument support, progress display, logs, results,
+#       prerequisite checker, simulate mode, README/CHANGELOG auto-generation.
+# ==============================================================================
+
+# ==============================================================================
+# SECTION 0 – STRICT MODE & SAFETY
+# set -E  : ERR trap inherited by functions and subshells
+# set -e  : exit immediately on any non-zero exit code
+# set -u  : treat unset variables as errors
+# set -o pipefail : a pipeline fails if any command in it fails
+# IFS     : restrict word splitting to newlines and tabs (safer for filenames)
+# ==============================================================================
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+# ==============================================================================
+# SECTION 1 – SCRIPT METADATA & GLOBAL CONSTANTS
+# ==============================================================================
+
+SCRIPT_NAME="syncgit.sh"
+SCRIPT_VERSION="v1.2.0"
+SCRIPT_DATE="2026-03-03"
+AUTHOR="Bruno DELNOZ"
+EMAIL="bruno.delnoz@protonmail.com"
+
+# Resolve the absolute directory where this script lives, regardless of CWD.
+# This ensures ./logs, ./results, ./infos are always relative to the script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# ==============================================================================
+# SECTION 2 – DEFAULT VALUES
+# All runtime parameters are set here and can be overridden by CLI arguments.
+# ==============================================================================
+
+DEFAULT_ROOT_DIR="."                          # Root dir to scan (default: current dir)
+DEFAULT_DEST_DIR="${SCRIPT_DIR}/results"      # Output folder for result files
+DEFAULT_LOGS_DIR="${SCRIPT_DIR}/logs"         # Folder for log files
+DEFAULT_INFOS_DIR="${SCRIPT_DIR}/infos"       # Folder for documentation .md files
+DEFAULT_BRANCH="main"                         # Git branch to work on
+DEFAULT_CMD_MODE="direct"                     # Execution mode: direct or bash-i
+
+# --- Runtime variables (overridden by parsed CLI arguments) ---
+ROOT_DIR="${DEFAULT_ROOT_DIR}"
+DEST_DIR="${DEFAULT_DEST_DIR}"
+LOGS_DIR="${DEFAULT_LOGS_DIR}"
+INFOS_DIR="${DEFAULT_INFOS_DIR}"
+BRANCH="${DEFAULT_BRANCH}"
+CMD_MODE="${DEFAULT_CMD_MODE}"
+
+# --- Optional / flags ---
+SIMULATE=0                  # 0=real execution, 1=dry-run (set by --simulate)
+RECURRENT=0                 # 0=run once, 1=run in loop (set by --recurrent)
+RECURRENT_SECONDS=""        # Interval in seconds between recurrent runs
+CUSTOM_CMD=""               # If set via --cmd, replaces the default git sequence
+ACTION_MODE=""              # Which primary action was requested
+PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also passed
+
+# --- Runtime state (computed at startup via init_run_context) ---
+RUN_TS=""                   # Timestamp string generated at run start
+LOG_FILE=""                 # Full path to the log file for this run
+RESULT_FILE=""              # Full path to the result summary file for this run
+
+# --- Execution counters ---
+TOTAL_REPOS=0
+REPOS_SYNCED=0
+REPOS_SKIPPED=0
+REPOS_FAILED=0
+STEP_CURRENT=0
+STEP_TOTAL=5
+
+# --- Array to record every action performed ---
+declare -a ACTIONS_DONE=()
+
+# ==============================================================================
+# SECTION 3 – UTILITY & LOGGING FUNCTIONS
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Function : ts_now
+# Purpose  : Return a compact timestamp string for filenames (no spaces/colons).
+# Output   : e.g. 20260303-143022
+# ------------------------------------------------------------------------------
+ts_now() {
+    date '+%Y%m%d-%H%M%S'
+}
+
+# ------------------------------------------------------------------------------
+# Function : ts_human
+# Purpose  : Return a human-readable timestamp for log lines.
+# Output   : e.g. 2026-03-03 14:30:22
+# ------------------------------------------------------------------------------
+ts_human() {
+    date '+%Y-%m-%d %H:%M:%S'
+}
+
+# ------------------------------------------------------------------------------
+# Function : log
+# Purpose  : Write a tagged, timestamped message to stdout AND the log file.
+# Args     : $1 = level string (INFO / WARN / ERROR / SIM / OK / STEP / FATAL)
+#            $@ = message content (all remaining args joined as one message)
+# ------------------------------------------------------------------------------
+log() {
+    local level="$1"; shift
+    local msg="$*"
+    local line="[${SCRIPT_VERSION}] [$(ts_human)] [${level}] ${msg}"
+    echo "${line}"
+    # Write to log file only after LOG_FILE path has been initialized
+    if [[ -n "${LOG_FILE:-}" && -d "${LOGS_DIR}" ]]; then
+        echo "${line}" >> "${LOG_FILE}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Function : die
+# Purpose  : Log a FATAL error and exit immediately with code 1.
+# Args     : $@ = error message
+# ------------------------------------------------------------------------------
+die() {
+    log "FATAL" "$*"
+    exit 1
+}
+
+# ------------------------------------------------------------------------------
+# Function : sep
+# Purpose  : Print a visual separator line to stdout and the log file.
+# ------------------------------------------------------------------------------
+sep() {
+    log "INFO" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# ------------------------------------------------------------------------------
+# Function : log_action
+# Purpose  : Append a completed action to ACTIONS_DONE array and log it.
+# Args     : $1 = human-readable description of the action
+# ------------------------------------------------------------------------------
+log_action() {
+    local action="$1"
+    ACTIONS_DONE+=("${action}")
+    log "OK" "ACTION: ${action}"
+}
+
+# ------------------------------------------------------------------------------
+# Function : print_step
+# Purpose  : Display step progress in format: ">>> LABEL (N/TOTAL)"
+# Args     : $1 = current step, $2 = total steps, $3 = label
+# ------------------------------------------------------------------------------
+print_step() {
+    local current="$1"
+    local total="$2"
+    local label="$3"
+    log "STEP" ">>> ${label} (${current}/${total})"
+}
+
+# ==============================================================================
+# SECTION 4 – COMMAND EXECUTION HELPER
+# Centralises how commands are run, enforcing simulate mode uniformly.
+# Two execution modes are supported (set via --cmd_mode):
+#   direct : bash -c "<cmd>"           – standard, no alias expansion
+#   bash-i : bash -ic "<cmd>"          – interactive bash, shell aliases work
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Function : run_cmd
+# Purpose  : Execute a command string (real or simulated).
+#            In SIMULATE mode: only logs what WOULD be executed.
+#            In real mode: executes via bash -c or bash -ic per CMD_MODE.
+# Args     : $1 = human-readable description
+#            $2 = command string to execute
+# Returns  : exit code of the command (0 in simulate mode)
+# ------------------------------------------------------------------------------
+run_cmd() {
+    local desc="$1"
+    local cmd_str="$2"
+
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        log "SIM" "[DRY-RUN] WOULD EXECUTE: ${desc}"
+        log "SIM" "          Command: ${cmd_str}"
+        log "SIM" "          Mode   : ${CMD_MODE}"
+        return 0
+    fi
+
+    log "INFO" "EXECUTING [${CMD_MODE}]: ${desc}"
+    log "INFO" "  Command: ${cmd_str}"
+
+    local exit_code=0
+    if [[ "${CMD_MODE}" == "bash-i" ]]; then
+        # Interactive bash: loads ~/.bashrc and shell aliases
+        bash -ic "${cmd_str}" || exit_code=$?
+    else
+        # Direct bash: standard non-interactive execution
+        bash -c "${cmd_str}" || exit_code=$?
+    fi
+
+    if [[ "${exit_code}" -ne 0 ]]; then
+        log "ERROR" "Command failed (exit ${exit_code}): ${cmd_str}"
+    fi
+    return "${exit_code}"
+}
+
+# ==============================================================================
+# SECTION 5 – DIRECTORY SETUP
+# Ensures ./logs, ./results, ./infos exist before any operation.
+# Creates them automatically if missing.
+# ==============================================================================
+
+setup_directories() {
+    log "INFO" "Setting up required directories..."
+
+    # Create logs directory if it does not exist
+    if [[ ! -d "${LOGS_DIR}" ]]; then
+        mkdir -p "${LOGS_DIR}"
+        echo "[INFO] Created logs directory: ${LOGS_DIR}"
+    fi
+
+    # Create results/dest directory if it does not exist
+    if [[ ! -d "${DEST_DIR}" ]]; then
+        mkdir -p "${DEST_DIR}"
+        log "INFO" "Created results directory: ${DEST_DIR}"
+    fi
+
+    # Create infos directory for documentation markdown files
+    if [[ ! -d "${INFOS_DIR}" ]]; then
+        mkdir -p "${INFOS_DIR}"
+        log "INFO" "Created infos directory: ${INFOS_DIR}"
+    fi
+
+    log "INFO" "Directory setup complete."
+}
+
+# ==============================================================================
+# SECTION 6 – INITIALIZE RUN CONTEXT
+# Sets up the timestamp, log file path, and result file path for this run.
+# Must be called after setup_directories() so that LOG_FILE can be written.
+# ==============================================================================
+
+init_run_context() {
+    RUN_TS="$(ts_now)"
+    LOG_FILE="${LOGS_DIR}/log.${SCRIPT_NAME}.${RUN_TS}.log"
+    RESULT_FILE="${DEST_DIR}/summary.${SCRIPT_NAME}.${RUN_TS}.txt"
+    log "INFO" "Run context initialized."
+    log "INFO" "  Log file    : ${LOG_FILE}"
+    log "INFO" "  Result file : ${RESULT_FILE}"
+}
+
+# ==============================================================================
+# SECTION 7 – HELP DISPLAY
+# Shown automatically when no argument is given, or when --help / -h is passed.
+# Lists all options with defaults and possible values.
+# ==============================================================================
+
+show_help() {
+    cat <<EOF
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ${SCRIPT_NAME}  –  ${SCRIPT_VERSION}  –  ${SCRIPT_DATE}
+  Author : ${AUTHOR} <${EMAIL}>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DESCRIPTION:
+  Recursively scans a root directory for Git repositories (.git dirs).
+  For each repo found, either:
+    (a) Default git sync sequence:
+          git checkout <branch>
+          git add .
+          git commit -m "commit last version done by syncgit.sh"  (skipped if nothing to commit)
+          git push --set-upstream --force origin <branch>
+          git push --force origin --all
+    (b) Custom command via --cmd "<command>"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USAGE:
+  ./${SCRIPT_NAME} [ACTION] [OPTIONS]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACTIONS (one required):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  --exec,       -exe   Scan repos and execute the sync action.
+  --simulate,   -s     Dry-run: scan and log all actions, no real changes.
+  --prerequis,  -pr    Check prerequisites and display their status.
+  --install,    -i     Install / configure missing prerequisites.
+  --changelog,  -ch    Display the full embedded changelog.
+  --purge,      -pu    Delete ./logs and ./results (requires --yes).
+  --help,       -h     Display this help message.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPTIONS (for use with --exec):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  --root_dir <path>        Root directory to scan recursively.
+                           Default : ${DEFAULT_ROOT_DIR}
+                           Possible: any absolute or relative path
+                           Example : /mnt/data/projects
+
+  --dest_dir <path>        Destination folder for result files.
+                           Alias   : --results_dir
+                           Default : ${DEFAULT_DEST_DIR}
+                           Possible: any writable directory path
+
+  --results_dir <path>     Alias of --dest_dir (same effect).
+
+  --logs_dir <path>        Folder for log files.
+                           Default : ${DEFAULT_LOGS_DIR}
+
+  --branch <name>          Git branch to use in default sync sequence.
+                           Default : ${DEFAULT_BRANCH}
+                           Possible: main, master, develop, or any valid branch
+                           Validated: only alphanumeric, /, _, -, . allowed
+
+  --simulate, -s           Dry-run mode: logs all actions, makes no changes.
+                           Presence of this flag alone activates simulation.
+                           Default : off
+
+  --cmd "<command>"        Custom shell command to run in each repo instead
+                           of the default sync sequence.
+                           Example : "git pull --rebase"
+                           Example : "rm -f .gigi"
+
+  --cmd_mode <mode>        How the custom --cmd is executed.
+                           Default : ${DEFAULT_CMD_MODE}
+                           Possible:
+                             direct  – bash -c  (no alias expansion)
+                             bash-i  – bash -ic (interactive: shell aliases work)
+
+  --recurrent <seconds>    Repeat the full run every N seconds until Ctrl+C.
+                           Default : disabled (run once)
+                           Example : --recurrent 300  (repeat every 5 minutes)
+
+OPTIONS (for use with --purge):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  --yes                    Required confirmation flag for --purge.
+                           Without it, purge will abort safely.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Check prerequisites:
+  ./${SCRIPT_NAME} --prerequis
+
+  # Default sync on all repos under current directory:
+  ./${SCRIPT_NAME} --exec
+
+  # Default sync on a specific root directory:
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security
+
+  # Simulate (dry-run) – no real changes:
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --simulate
+
+  # Run a custom shell command in each repo:
+  ./${SCRIPT_NAME} --exec --cmd "git pull --rebase"
+
+  # Run a direct shell command in each repo:
+  ./${SCRIPT_NAME} --exec --cmd "rm -f .gigi" --root_dir /mnt/data/Security
+
+  # Use master branch instead of main:
+  ./${SCRIPT_NAME} --exec --branch master
+
+  # Repeat every 10 minutes automatically:
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data --recurrent 600
+
+  # Purge all logs and results (requires --yes):
+  ./${SCRIPT_NAME} --purge --yes
+
+  # Show full changelog:
+  ./${SCRIPT_NAME} --changelog
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILES GENERATED:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Logs    : ./logs/log.${SCRIPT_NAME}.<TIMESTAMP>.log
+  Results : ./results/summary.${SCRIPT_NAME}.<TIMESTAMP>.txt
+  Docs    : ./infos/README.md  ./infos/CHANGELOG.md
+
+EOF
+    exit 0
+}
+
+# ==============================================================================
+# SECTION 8 – CHANGELOG DISPLAY
+# ==============================================================================
+
+show_changelog() {
+    cat <<'EOF'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CHANGELOG – syncgit.sh
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.2.0 – 2026-03-03 – Bruno DELNOZ
+  - FIXED: cd without returning to original dir in repo loop (pushd/popd)
+  - FIXED: RESULT_FILE computed with empty RUN_TS during arg parsing (removed
+           stray assignment in --dest_dir case; init_run_context() owns this)
+  - FIXED: _check_one() was nested inside check_prerequisites() → moved to
+           global scope as prereq_check_one() for bash strict-mode safety
+  - FIXED: read without fallback in install_prerequisites() – fails on
+           non-interactive stdin (pipe/cron); added || answer="N" guard
+  - FIXED: generate_docs() was overwriting ./README.md and ./CHANGELOG.md at
+           every --exec run, erasing manual edits; now writes only to ./infos/
+  - FIXED: find picked up .git dirs inside git submodule paths (.git/modules);
+           added -not -path '*/.git/*' prune to skip nested hits
+  - ADDED: --branch value now validated against safe charset [a-zA-Z0-9/_.-]
+
+## v1.1.0 – 2026-02-28 – Bruno DELNOZ
+  - MERGED: improvements from alternate reference version (v1.3.0 style)
+  - ADDED: set -Eeuo pipefail + IFS=$'\n\t' for safer strict-mode bash
+  - ADDED: ts_now() / ts_human() / die() / sep() utility functions
+  - ADDED: --cmd_mode direct|bash-i (direct=bash -c, bash-i=bash -ic)
+  - ADDED: --recurrent <seconds> repeat the full run every N seconds
+  - ADDED: --root_dir as primary scan path option (replaces --base_dir)
+  - ADDED: --results_dir as alias for --dest_dir
+  - ADDED: --logs_dir to override the logs directory
+  - ADDED: --yes required flag for --purge (no interactive prompt needed)
+  - ADDED: SCRIPT_DIR auto-detection so ./logs ./results paths are always correct
+  - ADDED: init_run_context() to initialize RUN_TS, LOG_FILE, RESULT_FILE cleanly
+  - ADDED: no more version in filename (version stays inside script + .md files)
+  - UPDATED: run_cmd() now uses CMD_MODE to decide between bash -c and bash -ic
+  - UPDATED: default sync sequence now skips commit gracefully if nothing to commit
+
+## v1.0.1 – 2026-02-28 – Bruno DELNOZ
+  - FIXED: commands executed via bash -i -c to support shell alias expansion
+  - FIXED: prerequisite checker tests custom cmd via bash -i -c "type <cmd>"
+  - UPDATED: option renamed from --alias to --cmd
+
+## v1.0.0 – 2026-02-28 – Bruno DELNOZ
+  - Initial release
+  - Recursive find for .git directories
+  - Branch switch before command execution
+  - --exec, --simulate, --prerequis, --install, --changelog, --purge, --help
+  - Step progress display (N/TOTAL format)
+  - ./logs, ./results, ./infos auto-created
+  - README.md + CHANGELOG.md auto-generated in ./infos/
+  - Post-execution numbered action list
+
+EOF
+    exit 0
+}
+
+# ==============================================================================
+# SECTION 9 – PREREQUISITE CHECK
+# Checks all required tools and configs. Displays PASS/FAIL per item.
+#
+# FIX v1.2.0: prereq_check_one() is now a global function (was nested inside
+# check_prerequisites(), which is problematic in strict bash mode and prevents
+# reuse). Prefixed with "prereq_" to avoid namespace collisions.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Function : prereq_check_one
+# Purpose  : Print one prerequisite result line (PASS or FAIL).
+# Args     : $1 = label, $2 = status (ok|fail), $3 = detail string
+# Side-effect: sets __prereq_all_pass to "false" on any failure.
+# ------------------------------------------------------------------------------
+prereq_check_one() {
+    local label="$1"
+    local status="$2"
+    local detail="$3"
+    if [[ "${status}" == "ok" ]]; then
+        printf "  [✔] %-42s PASS  – %s\n" "${label}:" "${detail}"
+        log "INFO" "PREREQ OK  : ${label} – ${detail}"
+    else
+        printf "  [✘] %-42s FAIL  – %s\n" "${label}:" "${detail}"
+        log "WARN" "PREREQ FAIL: ${label} – ${detail}"
+        __prereq_all_pass="false"
+    fi
+}
+
+check_prerequisites() {
+    sep
+    log "INFO" "Checking prerequisites for ${SCRIPT_NAME} ${SCRIPT_VERSION}..."
+    sep
+
+    # Shared state flag read by prereq_check_one()
+    __prereq_all_pass="true"
+
+    echo ""
+
+    # 1. git binary
+    if command -v git &>/dev/null; then
+        prereq_check_one "git binary" "ok" "$(git --version)"
+    else
+        prereq_check_one "git binary" "fail" "Not found in PATH – install git"
+    fi
+
+    # 2. git user.name
+    local git_user
+    git_user="$(git config --global user.name 2>/dev/null || true)"
+    if [[ -n "${git_user}" ]]; then
+        prereq_check_one "git config user.name" "ok" "${git_user}"
+    else
+        prereq_check_one "git config user.name" "fail" \
+            "Not set – run: git config --global user.name 'Your Name'"
+    fi
+
+    # 3. git user.email
+    local git_email_cfg
+    git_email_cfg="$(git config --global user.email 2>/dev/null || true)"
+    if [[ -n "${git_email_cfg}" ]]; then
+        prereq_check_one "git config user.email" "ok" "${git_email_cfg}"
+    else
+        prereq_check_one "git config user.email" "fail" \
+            "Not set – run: git config --global user.email 'you@example.com'"
+    fi
+
+    # 4. If a custom --cmd is set, check it's available (in bash-i mode)
+    if [[ -n "${CUSTOM_CMD}" ]]; then
+        local cmd_word
+        cmd_word="${CUSTOM_CMD%% *}"
+        local type_check
+        type_check="$(bash -ic "type ${cmd_word} 2>&1" || true)"
+        if echo "${type_check}" | grep -qiE "alias|function|builtin|is "; then
+            prereq_check_one "custom cmd '${cmd_word}'" "ok" \
+                "$(echo "${type_check}" | head -1)"
+        else
+            prereq_check_one "custom cmd '${cmd_word}'" "fail" \
+                "'${cmd_word}' not found as alias or command in bash-i context"
+        fi
+    fi
+
+    # 5. Root directory exists and is readable
+    if [[ -d "${ROOT_DIR}" && -r "${ROOT_DIR}" ]]; then
+        prereq_check_one "root_dir '${ROOT_DIR}'" "ok" "Exists and is readable"
+    else
+        prereq_check_one "root_dir '${ROOT_DIR}'" "fail" \
+            "'${ROOT_DIR}' does not exist or is not readable"
+    fi
+
+    # 6. find utility
+    if command -v find &>/dev/null; then
+        prereq_check_one "find utility" "ok" "$(command -v find)"
+    else
+        prereq_check_one "find utility" "fail" "Not found – install findutils"
+    fi
+
+    # 7. SSH agent OR credential helper
+    local ssh_agent_pid="${SSH_AGENT_PID:-}"
+    if [[ -n "${ssh_agent_pid}" ]]; then
+        prereq_check_one "SSH agent" "ok" "Running (PID ${ssh_agent_pid})"
+    else
+        local cred_helper
+        cred_helper="$(git config --global credential.helper 2>/dev/null || true)"
+        if [[ -n "${cred_helper}" ]]; then
+            prereq_check_one "git credential helper" "ok" "${cred_helper}"
+        else
+            prereq_check_one "SSH agent / credential helper" "fail" \
+                "No SSH agent, no credential.helper – push may fail for HTTPS"
+        fi
+    fi
+
+    echo ""
+    sep
+
+    if [[ "${__prereq_all_pass}" == "true" ]]; then
+        log "OK" "All prerequisites passed. Ready to run --exec."
+    else
+        log "WARN" "Some prerequisites are missing."
+        echo "  → Run: ./${SCRIPT_NAME} --install   to fix where possible."
+    fi
+
+    exit 0
+}
+
+# ==============================================================================
+# SECTION 10 – PREREQUISITE INSTALLATION
+# Best-effort installation of missing dependencies using available pkg managers.
+# Uses sudo internally.
+#
+# FIX v1.2.0: read now has a fallback "|| answer='N'" so the script does not
+# crash when stdin is not a terminal (cron, pipes, CI environments).
+# ==============================================================================
+
+install_prerequisites() {
+    sep
+    log "INFO" "Starting prerequisite installation – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
+    sep
+
+    # Install git if missing
+    if ! command -v git &>/dev/null; then
+        log "INFO" "git not found. Attempting installation..."
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y git
+            log_action "Installed git via apt-get"
+        elif command -v yum &>/dev/null; then
+            sudo yum install -y git
+            log_action "Installed git via yum"
+        elif command -v dnf &>/dev/null; then
+            sudo dnf install -y git
+            log_action "Installed git via dnf"
+        elif command -v brew &>/dev/null; then
+            brew install git
+            log_action "Installed git via brew"
+        else
+            die "No supported package manager found (apt/yum/dnf/brew). Install git manually."
+        fi
+    else
+        log "INFO" "git already installed: $(git --version)"
+    fi
+
+    # git user.name
+    if [[ -z "$(git config --global user.name 2>/dev/null || true)" ]]; then
+        log "WARN" "git user.name not set. Please run:"
+        echo "  git config --global user.name 'Bruno DELNOZ'"
+    else
+        log "INFO" "git user.name: $(git config --global user.name)"
+    fi
+
+    # git user.email
+    if [[ -z "$(git config --global user.email 2>/dev/null || true)" ]]; then
+        log "WARN" "git user.email not set. Please run:"
+        echo "  git config --global user.email '${EMAIL}'"
+    else
+        log "INFO" "git user.email: $(git config --global user.email)"
+    fi
+
+    sep
+    log "OK" "Installation phase complete. Run --prerequis to verify."
+    exit 0
+}
+
+# ==============================================================================
+# SECTION 11 – PURGE FUNCTION
+# Deletes all files in LOGS_DIR and DEST_DIR.
+# Requires --yes flag to be passed (no interactive prompt).
+# ==============================================================================
+
+purge_directories() {
+    sep
+    log "WARN" "PURGE requested for:"
+    log "WARN" "  ${LOGS_DIR}"
+    log "WARN" "  ${DEST_DIR}"
+    sep
+
+    # Safety gate: abort if --yes was not passed
+    if [[ "${PURGE_YES}" -ne 1 ]]; then
+        die "Purge requires --yes flag. Example: ./${SCRIPT_NAME} --purge --yes"
+    fi
+
+    # Purge logs directory
+    if [[ -d "${LOGS_DIR}" ]]; then
+        log "INFO" "Purging: ${LOGS_DIR}"
+        rm -rf "${LOGS_DIR:?}"/*
+        log "OK" "Purged: ${LOGS_DIR}"
+    else
+        log "INFO" "Not found, skipped: ${LOGS_DIR}"
+    fi
+
+    # Purge results/dest directory
+    if [[ -d "${DEST_DIR}" ]]; then
+        log "INFO" "Purging: ${DEST_DIR}"
+        rm -rf "${DEST_DIR:?}"/*
+        log "OK" "Purged: ${DEST_DIR}"
+    else
+        log "INFO" "Not found, skipped: ${DEST_DIR}"
+    fi
+
+    log_action "Purged: ${LOGS_DIR} and ${DEST_DIR}"
+    echo ""
+    log "OK" "Purge complete."
+    exit 0
+}
+
+
+# ==============================================================================
+# SECTION 13 – WRITE RESULT SUMMARY FILE
+# ==============================================================================
+
+write_result_file() {
+    {
+        echo "================================================================"
+        echo "  EXECUTION SUMMARY – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
+        echo "  Date       : $(ts_human)"
+        echo "  Root dir   : ${ROOT_DIR}"
+        echo "  Branch     : ${BRANCH}"
+        echo "  Cmd mode   : ${CMD_MODE}"
+        echo "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
+        echo "  Simulate   : ${SIMULATE}"
+        echo "  Recurrent  : ${RECURRENT_SECONDS:-(once)}"
+        echo "================================================================"
+        echo ""
+        echo "  Total repos found        : ${TOTAL_REPOS}"
+        echo "  Successfully synced      : ${REPOS_SYNCED}"
+        echo "  Skipped (no branch)      : ${REPOS_SKIPPED}"
+        echo "  Failed                   : ${REPOS_FAILED}"
+        echo ""
+        echo "================================================================"
+        echo "  ACTIONS PERFORMED:"
+        echo "================================================================"
+        local idx=1
+        for action in "${ACTIONS_DONE[@]}"; do
+            echo "  ${idx}. ${action}"
+            idx=$((idx + 1))
+        done
+        echo ""
+        echo "  Log file: ${LOG_FILE}"
+        echo "================================================================"
+    } > "${RESULT_FILE}"
+    log "OK" "Result summary written to: ${RESULT_FILE}"
+}
+
+# ==============================================================================
+# SECTION 14 – DISPLAY POST-EXECUTION SUMMARY
+# Prints a numbered list of all actions to the console.
+# ==============================================================================
+
+display_post_exec_summary() {
+    sep
+    log "INFO" "POST-EXECUTION SUMMARY"
+    sep
+    echo ""
+    echo "  Total repos found        : ${TOTAL_REPOS}"
+    echo "  Successfully synced      : ${REPOS_SYNCED}"
+    echo "  Skipped (no branch)      : ${REPOS_SKIPPED}"
+    echo "  Failed                   : ${REPOS_FAILED}"
+    echo ""
+    echo "  ── Actions performed ────────────────────────────────────────"
+    local idx=1
+    for action in "${ACTIONS_DONE[@]}"; do
+        echo "  ${idx}. ${action}"
+        idx=$((idx + 1))
+    done
+    echo ""
+    echo "  Log file    : ${LOG_FILE}"
+    echo "  Result file : ${RESULT_FILE}"
+    sep
+}
+
+# ==============================================================================
+# SECTION 15 – DEFAULT GIT SYNC SEQUENCE
+# Runs the built-in sync when no --cmd is specified.
+# Steps: checkout branch → add all → commit (skip if clean) → push force
+#
+# NOTE: This function is called AFTER pushd into the repo dir (see run_one_pass).
+# The repo_path argument is used only for log messages, not for cd.
+# ==============================================================================
+
+run_default_git_sync() {
+    local repo_path="$1"
+    local _step_total=5
+
+    log "INFO" "  Running default git sync sequence in: ${repo_path}"
+
+    # ── Step a/5 : checkout ──────────────────────────────────────────────────
+    echo "  ┌─ [a/${_step_total}] git checkout ${BRANCH}"
+    local co_exit=0
+    run_cmd "git checkout ${BRANCH}" "git checkout ${BRANCH}" || co_exit=$?
+    if [[ "${co_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${co_exit}) – checkout '${BRANCH}'"
+        log "ERROR" "  checkout '${BRANCH}' failed (exit ${co_exit}) – skipping repo."
+        return "${co_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    # ── Step b/5 : add ───────────────────────────────────────────────────────
+    echo "  ┌─ [b/${_step_total}] git add ."
+    run_cmd "git add ." "git add ."
+    echo "  └─ ✔ done"
+
+    # ── Step c/5 : commit ────────────────────────────────────────────────────
+    echo "  ┌─ [c/${_step_total}] git commit"
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        run_cmd \
+            "git commit -m 'commit last version done by syncgit.sh' (if anything staged)" \
+            "git commit -m 'commit last version done by syncgit.sh'"
+        echo "  └─ ✔ done (simulated)"
+    else
+        if ! git diff --cached --quiet 2>/dev/null; then
+            local commit_exit=0
+            run_cmd \
+                "git commit -m 'commit last version done by syncgit.sh'" \
+                "git commit -m 'commit last version done by syncgit.sh'" || commit_exit=$?
+            if [[ "${commit_exit}" -ne 0 ]]; then
+                echo "  └─ ✘ FAILED (exit ${commit_exit}) – commit"
+                log "ERROR" "  commit failed (exit ${commit_exit})"
+                return "${commit_exit}"
+            fi
+            echo "  └─ ✔ done"
+        else
+            echo "  └─ ✔ nothing to commit – skipped"
+            log "INFO" "  Nothing to commit – skipping commit step."
+        fi
+    fi
+
+    # ── Step d/5 : push branch ───────────────────────────────────────────────
+    echo "  ┌─ [d/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
+    local push_exit=0
+    run_cmd \
+        "git push --set-upstream --force origin ${BRANCH}" \
+        "git push --set-upstream --force origin ${BRANCH}" || push_exit=$?
+    if [[ "${push_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${push_exit}) – push may have been rejected (large files? no remote?)"
+        log "ERROR" "  push --set-upstream failed (exit ${push_exit}) – skipping push --all."
+        return "${push_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    # ── Step e/5 : push all branches ─────────────────────────────────────────
+    echo "  ┌─ [e/${_step_total}] git push --force origin --all"
+    local pushall_exit=0
+    run_cmd \
+        "git push --force origin --all" \
+        "git push --force origin --all" || pushall_exit=$?
+    if [[ "${pushall_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${pushall_exit}) – push --all rejected"
+        log "ERROR" "  push --all failed (exit ${pushall_exit})"
+        return "${pushall_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    return 0
+}
+
+# ==============================================================================
+# SECTION 16 – SINGLE SCAN & PROCESS PASS
+# One complete scan + process cycle. Called once, or in a loop if --recurrent.
+#
+# FIX v1.2.0: each repo is now processed inside a pushd/popd block so the
+# script always returns to the original working directory between repos.
+# Without this, a failed cd or a repo that changes CWD would corrupt all
+# subsequent relative path operations.
+#
+# FIX v1.2.0: find now uses -not -path '*/.git/*' to exclude .git entries
+# found inside git submodule storage dirs (.git/modules/*/), which were
+# previously being treated as top-level repositories.
+# ==============================================================================
+
+run_one_pass() {
+    # Reset counters for this pass
+    TOTAL_REPOS=0
+    REPOS_SYNCED=0
+    REPOS_SKIPPED=0
+    REPOS_FAILED=0
+    ACTIONS_DONE=()
+
+    # Re-initialize timestamps and file paths for this pass
+    init_run_context
+
+    sep
+    log "INFO" "Starting pass – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
+    log "INFO" "  Root dir   : ${ROOT_DIR}"
+    log "INFO" "  Branch     : ${BRANCH}"
+    log "INFO" "  Cmd mode   : ${CMD_MODE}"
+    log "INFO" "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
+    log "INFO" "  Simulate   : ${SIMULATE}"
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        log "SIM" "╔══════════════════════════════════════════════════╗"
+        log "SIM" "║   SIMULATION MODE ACTIVE – no real changes      ║"
+        log "SIM" "╚══════════════════════════════════════════════════╝"
+    fi
+    sep
+
+    # -------------------------------------------------------------------------
+    # STEP 1/5 – Setup directories
+    # -------------------------------------------------------------------------
+    STEP_CURRENT=1
+    print_step "${STEP_CURRENT}" "${STEP_TOTAL}" "Setting up directories"
+    setup_directories
+    log_action "Directories ready: ${LOGS_DIR}, ${DEST_DIR}, ${INFOS_DIR}"
+
+    # -------------------------------------------------------------------------
+    # STEP 2/5 – Validate root directory
+    # -------------------------------------------------------------------------
+    STEP_CURRENT=2
+    print_step "${STEP_CURRENT}" "${STEP_TOTAL}" "Validating root directory: ${ROOT_DIR}"
+
+    [[ -d "${ROOT_DIR}" ]] || die "Root directory does not exist: '${ROOT_DIR}'"
+    [[ -r "${ROOT_DIR}" ]] || die "Root directory not readable: '${ROOT_DIR}'"
+
+    log "INFO" "Root directory is valid: ${ROOT_DIR}"
+    log_action "Validated root directory: ${ROOT_DIR}"
+
+    # -------------------------------------------------------------------------
+    # STEP 3/5 – Discover git repositories
+    # FIX: -not -path '*/.git/*' prevents matching .git dirs stored inside
+    #      git submodule directories (.git/modules/<name>/.git).
+    # -------------------------------------------------------------------------
+    STEP_CURRENT=3
+    print_step "${STEP_CURRENT}" "${STEP_TOTAL}" "Scanning for git repositories under ${ROOT_DIR}"
+    log "INFO" "Running: find '${ROOT_DIR}' -type d -name '.git' (pruning submodule paths)"
+
+    declare -a repo_paths=()
+    local _scan_count=0
+    while IFS= read -r gitdir; do
+        repo_paths+=("${gitdir%/.git}")
+        _scan_count=$(( _scan_count + 1 ))
+        # Live counter on a single line, overwritten each time
+        printf "\r  Scanning... repos found so far: %d" "${_scan_count}" >&2
+        log "INFO" "  Found: ${gitdir%/.git}"
+    done < <(find "${ROOT_DIR}" -type d -name ".git" -not -path "*/.git/*" 2>/dev/null)
+    printf "\r  Scan complete.                          \n" >&2
+
+    TOTAL_REPOS="${#repo_paths[@]}"
+    log "INFO" "Scan complete. Found: ${TOTAL_REPOS} git repository(ies)."
+    log_action "Scanned '${ROOT_DIR}' – found ${TOTAL_REPOS} repos"
+
+    if [[ "${TOTAL_REPOS}" -eq 0 ]]; then
+        log "WARN" "No git repositories found under: ${ROOT_DIR}"
+        echo "  Nothing to sync. Try a different --root_dir."
+        return 0
+    fi
+
+    # -------------------------------------------------------------------------
+    # STEP 4/5 – Process each repository
+    # FIX: pushd/popd ensures we always return to the original directory after
+    #      processing each repo, regardless of success or failure.
+    # -------------------------------------------------------------------------
+    STEP_CURRENT=4
+    print_step "${STEP_CURRENT}" "${STEP_TOTAL}" "Processing ${TOTAL_REPOS} repositories"
+
+    local repo_idx=0
+    for repo_path in "${repo_paths[@]}"; do
+        repo_idx=$((repo_idx + 1))
+        echo ""
+        echo "╔══════════════════════════════════════════════════════════════════╗"
+        printf "║  REPO [%d/%d]  %s\n" "${repo_idx}" "${TOTAL_REPOS}" "${repo_path}"
+        printf "║  DIR  : %s\n" "${repo_path}"
+        echo "╚══════════════════════════════════════════════════════════════════╝"
+        log "INFO" "Repo ${repo_idx}/${TOTAL_REPOS}: ${repo_path}"
+
+        # Enter the repo directory – pushd saves the current dir on a stack.
+        # popd at the end of the block guarantees we return here unconditionally.
+        if ! pushd "${repo_path}" > /dev/null 2>&1; then
+            log "ERROR" "Cannot cd into: ${repo_path} – skipping."
+            REPOS_FAILED=$((REPOS_FAILED + 1))
+            log_action "FAILED (cannot access): ${repo_path}"
+            continue
+        fi
+        log "INFO" "  Working dir: $(pwd)"
+
+        # If using default sequence, verify the target branch exists
+        if [[ -z "${CUSTOM_CMD}" ]]; then
+            if ! git show-ref --verify --quiet "refs/heads/${BRANCH}" 2>/dev/null; then
+                log "WARN" "  Branch '${BRANCH}' not found in this repo – skipping."
+                REPOS_SKIPPED=$((REPOS_SKIPPED + 1))
+                log_action "SKIPPED (no branch '${BRANCH}'): ${repo_path}"
+                popd > /dev/null 2>&1
+                continue
+            fi
+        fi
+
+        # Execute: custom command OR default git sync sequence
+        local cmd_exit=0
+        if [[ -n "${CUSTOM_CMD}" ]]; then
+            run_cmd \
+                "Running '${CUSTOM_CMD}' in ${repo_path}" \
+                "${CUSTOM_CMD}" || cmd_exit=$?
+        else
+            run_default_git_sync "${repo_path}" || cmd_exit=$?
+        fi
+
+        # Always return to the previous directory before recording outcome
+        popd > /dev/null 2>&1
+
+        # Record outcome
+        if [[ "${cmd_exit}" -eq 0 || "${SIMULATE}" -eq 1 ]]; then
+            echo "  ✔ SUCCESS : ${repo_path}"
+            log "OK" "SUCCESS: ${repo_path}"
+            REPOS_SYNCED=$((REPOS_SYNCED + 1))
+            log_action "SYNCED: ${repo_path}"
+        else
+            echo "  ✘ FAILED  : ${repo_path}  (exit ${cmd_exit})"
+            log "ERROR" "FAILED (exit ${cmd_exit}): ${repo_path}"
+            REPOS_FAILED=$((REPOS_FAILED + 1))
+            log_action "FAILED (exit ${cmd_exit}): ${repo_path}"
+        fi
+
+    done  # end repo loop
+
+    # -------------------------------------------------------------------------
+    # STEP 5/5 – Generate docs, write results, display summary
+    # -------------------------------------------------------------------------
+    STEP_CURRENT=5
+    print_step "${STEP_CURRENT}" "${STEP_TOTAL}" "Writing results and summary"
+
+    write_result_file
+    display_post_exec_summary
+}
+
+# ==============================================================================
+# SECTION 17 – MAIN EXEC DISPATCHER
+# Handles single-run or recurrent loop depending on --recurrent flag.
+# ==============================================================================
+
+run_exec() {
+    if [[ "${RECURRENT}" -eq 1 && -n "${RECURRENT_SECONDS}" ]]; then
+        log "INFO" "Recurrent mode: running every ${RECURRENT_SECONDS} seconds. Press Ctrl+C to stop."
+        while true; do
+            run_one_pass
+            log "INFO" "Sleeping ${RECURRENT_SECONDS}s before next run..."
+            sleep "${RECURRENT_SECONDS}"
+        done
+    else
+        run_one_pass
+    fi
+}
+
+# ==============================================================================
+# SECTION 18 – ARGUMENT PARSING
+# ==============================================================================
+
+# Auto-show help when called with no arguments
+if [[ $# -eq 0 ]]; then
+    show_help
+fi
+
+# Parse all arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+
+        # ── Primary actions ─────────────────────────────────────────────────
+        --exec|-exe)
+            ACTION_MODE="exec"
+            shift
+            ;;
+        --simulate|-s)
+            ACTION_MODE="exec"
+            SIMULATE=1
+            shift
+            ;;
+        --prerequis|-pr)
+            ACTION_MODE="prerequis"
+            shift
+            ;;
+        --install|-i)
+            ACTION_MODE="install"
+            shift
+            ;;
+        --changelog|-ch)
+            ACTION_MODE="changelog"
+            shift
+            ;;
+        --purge|-pu)
+            ACTION_MODE="purge"
+            shift
+            ;;
+        --help|-h)
+            show_help
+            ;;
+
+        # ── Modifiers ───────────────────────────────────────────────────────
+        --yes)
+            PURGE_YES=1
+            shift
+            ;;
+        --root_dir)
+            [[ -z "${2:-}" ]] && die "--root_dir requires a path argument."
+            ROOT_DIR="$2"
+            shift 2
+            ;;
+        --dest_dir|--results_dir)
+            # FIX v1.2.0: removed stray RESULT_FILE assignment here.
+            # RUN_TS is empty at parse time; init_run_context() sets RESULT_FILE
+            # correctly once DEST_DIR and RUN_TS are both properly initialized.
+            [[ -z "${2:-}" ]] && die "$1 requires a directory path."
+            DEST_DIR="$2"
+            shift 2
+            ;;
+        --logs_dir)
+            [[ -z "${2:-}" ]] && die "--logs_dir requires a directory path."
+            LOGS_DIR="$2"
+            shift 2
+            ;;
+        --branch)
+            [[ -z "${2:-}" ]] && die "--branch requires a branch name."
+            # FIX v1.2.0: validate branch name – reject spaces and shell-unsafe chars
+            if [[ ! "$2" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+                die "--branch value contains invalid characters: '$2'. Use only: a-z A-Z 0-9 / _ - ."
+            fi
+            BRANCH="$2"
+            shift 2
+            ;;
+        --cmd)
+            [[ -z "${2:-}" ]] && die "--cmd requires a command string."
+            CUSTOM_CMD="$2"
+            shift 2
+            ;;
+        --cmd_mode)
+            [[ -z "${2:-}" ]] && die "--cmd_mode requires: direct or bash-i"
+            if [[ "$2" != "direct" && "$2" != "bash-i" ]]; then
+                die "--cmd_mode must be 'direct' or 'bash-i'. Got: '$2'"
+            fi
+            CMD_MODE="$2"
+            shift 2
+            ;;
+        --recurrent)
+            [[ -z "${2:-}" ]] && die "--recurrent requires a number of seconds."
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                die "--recurrent value must be a positive integer. Got: '$2'"
+            fi
+            RECURRENT=1
+            RECURRENT_SECONDS="$2"
+            shift 2
+            ;;
+
+        # ── Unknown ─────────────────────────────────────────────────────────
+        *)
+            die "Unknown argument: '$1'. Run: ./${SCRIPT_NAME} --help"
+            ;;
+    esac
+done
+
+# ==============================================================================
+# SECTION 19 – ACTION DISPATCH
+# ==============================================================================
+
+case "${ACTION_MODE}" in
+    exec)
+        setup_directories
+        run_exec
+        ;;
+    prerequis)
+        setup_directories
+        check_prerequisites
+        ;;
+    install)
+        setup_directories
+        install_prerequisites
+        ;;
+    changelog)
+        show_changelog
+        ;;
+    purge)
+        purge_directories
+        ;;
+    "")
+        die "No action specified. Use --exec, --prerequis, --install, --changelog, or --purge."
+        ;;
+    *)
+        die "Unknown action mode: '${ACTION_MODE}'"
+        ;;
+esac
