@@ -13,11 +13,27 @@
 #                        git commit -m "commit last version done by syncgit.sh"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-#                      with configurable execution mode (direct or bash-i)
-# VERSION      : v1.2.0
-# DATE         : 2026-03-03
+# VERSION      : v1.3.1
+# DATE         : 2026-03-05
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.1 – 2026-03-05 – Bruno DELNOZ
+#       Bugfix + Feature:
+#       - FIXED: remote conversion direction was wrong (HTTPS→SSH); corrected to
+#                SSH→HTTPS: git@github.com: / git@gitlab.com: → https://
+#                Warning: SYNCED - WARNING SSH to HTTPS applied
+#       - ADDED: --exclude "repo1;repo2;..." – skip named repos from processing;
+#                shown as ⊘ EXCLUDED in output and counted as skipped
+#       - ADDED: large file detection on push failure (blobs > 100MB in history)
+#                reported as FAILED - BIG FILES DETECTED on screen and report;
+#                full list written to logs/largefiles.<TIMESTAMP>.log
+#       - ADDED: stderr capture – displayed on screen AND written to
+#                logs/stderr.<TIMESTAMP>.log (via tee)
+#       - ADDED: if branch 'main' missing and 'master' exists, auto-create main
+#                from master; reported as SYNCED - WARNING main does not exists - created from master
+#       - ADDED: if current branch has uncommitted changes blocking checkout to
+#                main, auto-commit as "wip" then switch; reported as
+#                SYNCED - WARNING current branch <name> behind main
 #   v1.2.1 – 2026-03-03 – Bruno DELNOZ
 #       Bugfix:
 #       - FIXED: git add (and all git cmds) could block indefinitely on repos
@@ -37,7 +53,7 @@
 #   v1.1.0 – 2026-02-28 – Bruno DELNOZ
 #       Merged improvements from alternate version (v1.3.0 reference):
 #       Added set -Eeuo pipefail + IFS safety, ts_now/ts_human/die/sep helpers,
-#       --cmd_mode direct|bash-i, --recurrent <seconds>, --root_dir (replaces
+#       --recurrent <seconds>, --root_dir (replaces
 #       --base_dir), --results_dir alias for --dest_dir, --yes for --purge,
 #       SCRIPT_DIR auto-detection, removed version from filename.
 #   v1.0.1 – 2026-02-28 – Bruno DELNOZ
@@ -65,8 +81,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.2.1"
-SCRIPT_DATE="2026-03-03"
+SCRIPT_VERSION="v1.3.1"
+SCRIPT_DATE="2026-03-05"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -84,7 +100,6 @@ DEFAULT_DEST_DIR="${SCRIPT_DIR}/results"      # Output folder for result files
 DEFAULT_LOGS_DIR="${SCRIPT_DIR}/logs"         # Folder for log files
 DEFAULT_INFOS_DIR="${SCRIPT_DIR}/infos"       # Folder for documentation .md files
 DEFAULT_BRANCH="main"                         # Git branch to work on
-DEFAULT_CMD_MODE="direct"                     # Execution mode: direct or bash-i
 
 # --- Runtime variables (overridden by parsed CLI arguments) ---
 ROOT_DIR="${DEFAULT_ROOT_DIR}"
@@ -92,13 +107,13 @@ DEST_DIR="${DEFAULT_DEST_DIR}"
 LOGS_DIR="${DEFAULT_LOGS_DIR}"
 INFOS_DIR="${DEFAULT_INFOS_DIR}"
 BRANCH="${DEFAULT_BRANCH}"
-CMD_MODE="${DEFAULT_CMD_MODE}"
 
 # --- Optional / flags ---
 SIMULATE=0                  # 0=real execution, 1=dry-run (set by --simulate)
 RECURRENT=0                 # 0=run once, 1=run in loop (set by --recurrent)
 RECURRENT_SECONDS=""        # Interval in seconds between recurrent runs
 CUSTOM_CMD=""               # If set via --cmd, replaces the default git sequence
+EXCLUDE_LIST=""             # Semicolon-separated list of repo names to skip (--exclude)
 ACTION_MODE=""              # Which primary action was requested
 PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also passed
 
@@ -106,6 +121,12 @@ PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also 
 RUN_TS=""                   # Timestamp string generated at run start
 LOG_FILE=""                 # Full path to the log file for this run
 RESULT_FILE=""              # Full path to the result summary file for this run
+STDERR_LOG=""               # Full path to the stderr log for this run
+LARGEFILE_LOG=""            # Full path to the large files log for this run
+
+# --- Per-repo state (reset at the start of each repo) ---
+REPO_SYNC_WARNING=""        # Warning message for current repo (SSH→HTTPS, wip, etc.)
+LARGE_FILES_FOUND=0         # 1 if large files (>100MB) detected in git history
 
 # --- Execution counters ---
 TOTAL_REPOS=0
@@ -201,16 +222,14 @@ print_step() {
 # ==============================================================================
 # SECTION 4 – COMMAND EXECUTION HELPER
 # Centralises how commands are run, enforcing simulate mode uniformly.
-# Two execution modes are supported (set via --cmd_mode):
-#   direct : bash -c "<cmd>"           – standard, no alias expansion
-#   bash-i : bash -ic "<cmd>"          – interactive bash, shell aliases work
+# Commands are executed via bash -c in a non-interactive shell.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
 # Function : run_cmd
 # Purpose  : Execute a command string (real or simulated).
 #            In SIMULATE mode: only logs what WOULD be executed.
-#            In real mode: executes via bash -c or bash -ic per CMD_MODE.
+#            In real mode: executes via bash -c.
 # Args     : $1 = human-readable description
 #            $2 = command string to execute
 # Returns  : exit code of the command (0 in simulate mode)
@@ -222,23 +241,17 @@ run_cmd() {
     if [[ "${SIMULATE}" -eq 1 ]]; then
         log "SIM" "[DRY-RUN] WOULD EXECUTE: ${desc}"
         log "SIM" "          Command: ${cmd_str}"
-        log "SIM" "          Mode   : ${CMD_MODE}"
         return 0
     fi
 
-    log "INFO" "EXECUTING [${CMD_MODE}]: ${desc}"
+    log "INFO" "EXECUTING: ${desc}"
     log "INFO" "  Command: ${cmd_str}"
 
     local exit_code=0
-    if [[ "${CMD_MODE}" == "bash-i" ]]; then
-        # Interactive bash: loads ~/.bashrc and shell aliases
-        # Stdin redirected from /dev/null: prevents git (or any sub-cmd) from
-        # blocking on a credential/confirmation prompt when there is no terminal.
-        bash -ic "${cmd_str}" < /dev/null || exit_code=$?
-    else
-        # Direct bash: standard non-interactive execution
-        bash -c "${cmd_str}" < /dev/null || exit_code=$?
-    fi
+    # Non-interactive bash. Stdin from /dev/null prevents any subprocess from
+    # blocking on a credential/confirmation prompt with no terminal attached.
+    # Stderr is tee'd: displayed on screen AND captured in STDERR_LOG.
+    bash -c "${cmd_str}" < /dev/null 2> >(tee -a "${STDERR_LOG:-/dev/null}" >&2) || exit_code=$?
 
     if [[ "${exit_code}" -ne 0 ]]; then
         log "ERROR" "Command failed (exit ${exit_code}): ${cmd_str}"
@@ -286,9 +299,13 @@ init_run_context() {
     RUN_TS="$(ts_now)"
     LOG_FILE="${LOGS_DIR}/log.${SCRIPT_NAME}.${RUN_TS}.log"
     RESULT_FILE="${DEST_DIR}/summary.${SCRIPT_NAME}.${RUN_TS}.txt"
+    STDERR_LOG="${LOGS_DIR}/stderr.${SCRIPT_NAME}.${RUN_TS}.log"
+    LARGEFILE_LOG="${LOGS_DIR}/largefiles.${SCRIPT_NAME}.${RUN_TS}.log"
     log "INFO" "Run context initialized."
-    log "INFO" "  Log file    : ${LOG_FILE}"
-    log "INFO" "  Result file : ${RESULT_FILE}"
+    log "INFO" "  Log file      : ${LOG_FILE}"
+    log "INFO" "  Result file   : ${RESULT_FILE}"
+    log "INFO" "  Stderr log    : ${STDERR_LOG}"
+    log "INFO" "  Largefile log : ${LARGEFILE_LOG}"
 }
 
 # ==============================================================================
@@ -362,18 +379,23 @@ OPTIONS (for use with --exec):
 
   --cmd "<command>"        Custom shell command to run in each repo instead
                            of the default sync sequence.
+                           If omitted, the default sequence runs:
+                             [a] git checkout <branch>
+                             [b] git add .
+                             [c] git commit -m "commit last version done by syncgit.sh"
+                             [d] git push --set-upstream --force origin <branch>
+                             [e] git push --force origin --all
                            Example : "git pull --rebase"
                            Example : "rm -f .gigi"
 
-  --cmd_mode <mode>        How the custom --cmd is executed.
-                           Default : ${DEFAULT_CMD_MODE}
-                           Possible:
-                             direct  – bash -c  (no alias expansion)
-                             bash-i  – bash -ic (interactive: shell aliases work)
 
   --recurrent <seconds>    Repeat the full run every N seconds until Ctrl+C.
                            Default : disabled (run once)
                            Example : --recurrent 300  (repeat every 5 minutes)
+
+  --exclude "<list>"        Semicolon-separated list of repo names to skip.
+                           Matched against the basename of each repo path.
+                           Example : --exclude "LinkedIn-Learning-Downloader;toto;tata"
 
 OPTIONS (for use with --purge):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -437,6 +459,28 @@ show_changelog() {
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+## v1.3.1 – 2026-03-05 – Bruno DELNOZ
+  - FIXED: remote conversion was HTTPS→SSH (wrong direction); corrected to
+           SSH→HTTPS: git@github.com: / git@gitlab.com: → https://github.com/ / https://gitlab.com/
+           Output: SYNCED - WARNING SSH to HTTPS applied
+  - ADDED: --exclude "repo1;repo2;..." – skip specific repos by basename;
+           shown as ⊘ EXCLUDED in output, counted as skipped in summary
+
+## v1.3.0 – 2026-03-04 – Bruno DELNOZ
+  - ADDED: auto-conversion SSH→HTTPS for github.com/gitlab.com remotes
+           (corrected direction in v1.3.1); output: SYNCED - WARNING SSH to HTTPS applied
+  - ADDED: large file detection on push failure (blobs >100MB in git history);
+           output on screen+report: FAILED - BIG FILES DETECTED;
+           full list in logs/largefiles.<TIMESTAMP>.log
+  - ADDED: stderr capture – displayed on screen as before AND written to
+           logs/stderr.<TIMESTAMP>.log (via tee)
+  - ADDED: if branch 'main' missing and 'master' exists → auto-create main from
+           master and continue; output: SYNCED - WARNING main does not exists - created from master
+           if neither main nor master → FAILED with explicit message
+  - ADDED: if current branch has uncommitted changes blocking checkout to main
+           → auto git add + commit "wip" then switch to main;
+           output: SYNCED - WARNING current branch <name> behind main
+
 ## v1.2.1 – 2026-03-03 – Bruno DELNOZ
   - FIXED: git add (and any git cmd) could hang indefinitely on repos with
            embedded .git dirs (nested submodule-like repos not yet registered).
@@ -464,7 +508,6 @@ show_changelog() {
   - MERGED: improvements from alternate reference version (v1.3.0 style)
   - ADDED: set -Eeuo pipefail + IFS=$'\n\t' for safer strict-mode bash
   - ADDED: ts_now() / ts_human() / die() / sep() utility functions
-  - ADDED: --cmd_mode direct|bash-i (direct=bash -c, bash-i=bash -ic)
   - ADDED: --recurrent <seconds> repeat the full run every N seconds
   - ADDED: --root_dir as primary scan path option (replaces --base_dir)
   - ADDED: --results_dir as alias for --dest_dir
@@ -473,13 +516,11 @@ show_changelog() {
   - ADDED: SCRIPT_DIR auto-detection so ./logs ./results paths are always correct
   - ADDED: init_run_context() to initialize RUN_TS, LOG_FILE, RESULT_FILE cleanly
   - ADDED: no more version in filename (version stays inside script + .md files)
-  - UPDATED: run_cmd() now uses CMD_MODE to decide between bash -c and bash -ic
+  - UPDATED: run_cmd() always uses bash -c (non-interactive)
   - UPDATED: default sync sequence now skips commit gracefully if nothing to commit
 
 ## v1.0.1 – 2026-02-28 – Bruno DELNOZ
-  - FIXED: commands executed via bash -i -c to support shell alias expansion
   - FIXED: prerequisite checker tests custom cmd via bash -i -c "type <cmd>"
-  - UPDATED: option renamed from --alias to --cmd
 
 ## v1.0.0 – 2026-02-28 – Bruno DELNOZ
   - Initial release
@@ -561,18 +602,16 @@ check_prerequisites() {
             "Not set – run: git config --global user.email 'you@example.com'"
     fi
 
-    # 4. If a custom --cmd is set, check it's available (in bash-i mode)
+    # 4. If a custom --cmd is set, check the first word is an available command
     if [[ -n "${CUSTOM_CMD}" ]]; then
         local cmd_word
         cmd_word="${CUSTOM_CMD%% *}"
-        local type_check
-        type_check="$(bash -ic "type ${cmd_word} 2>&1" || true)"
-        if echo "${type_check}" | grep -qiE "alias|function|builtin|is "; then
+        if command -v "${cmd_word}" &>/dev/null; then
             prereq_check_one "custom cmd '${cmd_word}'" "ok" \
-                "$(echo "${type_check}" | head -1)"
+                "$(command -v "${cmd_word}")"
         else
             prereq_check_one "custom cmd '${cmd_word}'" "fail" \
-                "'${cmd_word}' not found as alias or command in bash-i context"
+                "'${cmd_word}' not found in PATH"
         fi
     fi
 
@@ -720,7 +759,79 @@ purge_directories() {
 
 
 # ==============================================================================
-# SECTION 13 – WRITE RESULT SUMMARY FILE
+# SECTION 11b – LARGE FILE DETECTION
+# Scans the current repo's git object store for blobs exceeding 100MB.
+# Called when a push fails to help diagnose the cause.
+# Results are written to LARGEFILE_LOG; LARGE_FILES_FOUND is set to 1 if any
+# oversized blob is found.
+# ==============================================================================
+
+# Threshold: 100 MB in bytes
+_LARGEFILE_THRESHOLD=$(( 100 * 1024 * 1024 ))
+
+check_large_files_in_history() {
+    local repo_path="$1"
+    LARGE_FILES_FOUND=0
+
+    log "INFO" "  Scanning git history for blobs > 100MB in: ${repo_path}"
+
+    local large_output
+    large_output=$(
+        git rev-list --objects --all 2>/dev/null \
+        | git cat-file --batch-check='%(objecttype) %(objectsize) %(rest)' 2>/dev/null \
+        | awk -v thresh="${_LARGEFILE_THRESHOLD}" \
+              '$1=="blob" && $2+0 >= thresh { printf "%d MB  %s\n", int($2/1024/1024), $3 }' \
+        | sort -rn \
+        2>/dev/null || true
+    )
+
+    if [[ -n "${large_output}" ]]; then
+        LARGE_FILES_FOUND=1
+        {
+            echo "================================================================"
+            echo "  LARGE FILES DETECTED (>100MB) – ${repo_path}"
+            echo "  Date: $(ts_human)"
+            echo "================================================================"
+            echo "${large_output}"
+            echo ""
+        } >> "${LARGEFILE_LOG}"
+        log "WARN" "  Large files found in history – see: ${LARGEFILE_LOG}"
+    else
+        log "INFO" "  No large files (>100MB) found in history."
+    fi
+}
+
+# ==============================================================================
+# SECTION 11c – SSH TO HTTPS REMOTE CONVERSION
+# If the origin remote uses an SSH URL for github.com or gitlab.com,
+# converts it to HTTPS in-place before the push step.
+# Sets REPO_SYNC_WARNING to signal the conversion to the caller.
+#
+# FIX v1.3.1: direction corrected – was HTTPS→SSH (wrong), now SSH→HTTPS.
+# ==============================================================================
+
+convert_remote_to_https() {
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+
+    local new_url=""
+    if [[ "${remote_url}" =~ ^git@github\.com: ]]; then
+        new_url=$(echo "${remote_url}" | sed 's|git@github\.com:|https://github.com/|')
+    elif [[ "${remote_url}" =~ ^git@gitlab\.com: ]]; then
+        new_url=$(echo "${remote_url}" | sed 's|git@gitlab\.com:|https://gitlab.com/|')
+    fi
+
+    if [[ -n "${new_url}" ]]; then
+        git remote set-url origin "${new_url}"
+        log "INFO" "  SSH→HTTPS: ${remote_url} → ${new_url}"
+        # Append to warning (may already contain another warning)
+        if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+            REPO_SYNC_WARNING="WARNING SSH to HTTPS applied"
+        else
+            REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / WARNING SSH to HTTPS applied"
+        fi
+    fi
+}
 # ==============================================================================
 
 write_result_file() {
@@ -730,9 +841,9 @@ write_result_file() {
         echo "  Date       : $(ts_human)"
         echo "  Root dir   : ${ROOT_DIR}"
         echo "  Branch     : ${BRANCH}"
-        echo "  Cmd mode   : ${CMD_MODE}"
         echo "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
         echo "  Simulate   : ${SIMULATE}"
+        echo "  Exclude    : ${EXCLUDE_LIST:-(none)}"
         echo "  Recurrent  : ${RECURRENT_SECONDS:-(once)}"
         echo "================================================================"
         echo ""
@@ -750,7 +861,9 @@ write_result_file() {
             idx=$((idx + 1))
         done
         echo ""
-        echo "  Log file: ${LOG_FILE}"
+        echo "  Log file        : ${LOG_FILE}"
+        echo "  Stderr log      : ${STDERR_LOG}"
+        echo "  Largefile log   : ${LARGEFILE_LOG}"
         echo "================================================================"
     } > "${RESULT_FILE}"
     log "OK" "Result summary written to: ${RESULT_FILE}"
@@ -779,6 +892,8 @@ display_post_exec_summary() {
     done
     echo ""
     echo "  Log file    : ${LOG_FILE}"
+    echo "  Stderr log  : ${STDERR_LOG}"
+    echo "  Largefile   : ${LARGEFILE_LOG}"
     echo "  Result file : ${RESULT_FILE}"
     sep
 }
@@ -797,6 +912,30 @@ run_default_git_sync() {
     local _step_total=5
 
     log "INFO" "  Running default git sync sequence in: ${repo_path}"
+
+    # ── Pre-checkout : auto-commit wip on current branch if needed ───────────
+    # If the current branch is not the target branch AND has uncommitted changes,
+    # those changes would block the checkout. We commit them as "wip" first.
+    # In simulate mode: detect and warn but do NOT commit.
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [[ -n "${current_branch}" && "${current_branch}" != "${BRANCH}" ]]; then
+        if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+            if [[ "${SIMULATE}" -eq 0 ]]; then
+                log "INFO" "  Current branch '${current_branch}' has uncommitted changes – auto-committing wip."
+                git add . < /dev/null 2> >(tee -a "${STDERR_LOG:-/dev/null}" >&2)
+                git commit -m "wip" < /dev/null 2> >(tee -a "${STDERR_LOG:-/dev/null}" >&2) || true
+                log "INFO" "  WIP committed on '${current_branch}' – now switching to '${BRANCH}'."
+            else
+                log "SIM" "  [DRY-RUN] Branch '${current_branch}' has uncommitted changes – WOULD auto-commit wip."
+            fi
+            if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+                REPO_SYNC_WARNING="WARNING current branch ${current_branch} behind main"
+            else
+                REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / WARNING current branch ${current_branch} behind main"
+            fi
+        fi
+    fi
 
     # ── Step a/5 : checkout ──────────────────────────────────────────────────
     echo "  ┌─ [a/${_step_total}] git checkout ${BRANCH}"
@@ -839,6 +978,38 @@ run_default_git_sync() {
         fi
     fi
 
+    # ── Pre-push : convert SSH remote to HTTPS if needed ─────────────────────
+    # In simulate mode: detect and set warning but do NOT modify .git/config.
+    if [[ "${SIMULATE}" -eq 0 ]]; then
+        convert_remote_to_https
+    else
+        local _remote_url
+        _remote_url=$(git remote get-url origin 2>/dev/null || true)
+        if [[ "${_remote_url}" =~ ^git@github\.com: || "${_remote_url}" =~ ^git@gitlab\.com: ]]; then
+            log "SIM" "  [DRY-RUN] Remote is SSH – WOULD convert to HTTPS: ${_remote_url}"
+            if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+                REPO_SYNC_WARNING="WARNING SSH to HTTPS applied"
+            else
+                REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / WARNING SSH to HTTPS applied"
+            fi
+        fi
+    fi
+
+    # ── Pre-push simulate : scan for big files (> 100MB) ─────────────────────
+    # In simulate mode the push never runs, so we proactively scan history
+    # and warn the user if oversized blobs would cause the push to fail.
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        check_large_files_in_history "${repo_path}"
+        if [[ "${LARGE_FILES_FOUND}" -eq 1 ]]; then
+            log "SIM" "  [DRY-RUN] Big files (>100MB) detected in history – push WOULD fail."
+            if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+                REPO_SYNC_WARNING="WARNING BIG FILES DETECTED - push would fail"
+            else
+                REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / WARNING BIG FILES DETECTED - push would fail"
+            fi
+        fi
+    fi
+
     # ── Step d/5 : push branch ───────────────────────────────────────────────
     echo "  ┌─ [d/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
     local push_exit=0
@@ -846,7 +1017,13 @@ run_default_git_sync() {
         "git push --set-upstream --force origin ${BRANCH}" \
         "git push --set-upstream --force origin ${BRANCH}" || push_exit=$?
     if [[ "${push_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
-        echo "  └─ ✘ FAILED (exit ${push_exit}) – push may have been rejected (large files? no remote?)"
+        # Scan git history for blobs > 100MB to help diagnose the failure
+        check_large_files_in_history "${repo_path}"
+        if [[ "${LARGE_FILES_FOUND}" -eq 1 ]]; then
+            echo "  └─ ✘ FAILED - BIG FILES DETECTED"
+        else
+            echo "  └─ ✘ FAILED (exit ${push_exit}) – push rejected (no remote? permissions?)"
+        fi
         log "ERROR" "  push --set-upstream failed (exit ${push_exit}) – skipping push --all."
         return "${push_exit}"
     fi
@@ -859,7 +1036,12 @@ run_default_git_sync() {
         "git push --force origin --all" \
         "git push --force origin --all" || pushall_exit=$?
     if [[ "${pushall_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
-        echo "  └─ ✘ FAILED (exit ${pushall_exit}) – push --all rejected"
+        check_large_files_in_history "${repo_path}"
+        if [[ "${LARGE_FILES_FOUND}" -eq 1 ]]; then
+            echo "  └─ ✘ FAILED - BIG FILES DETECTED"
+        else
+            echo "  └─ ✘ FAILED (exit ${pushall_exit}) – push --all rejected"
+        fi
         log "ERROR" "  push --all failed (exit ${pushall_exit})"
         return "${pushall_exit}"
     fi
@@ -882,6 +1064,37 @@ run_default_git_sync() {
 # previously being treated as top-level repositories.
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Function : is_excluded
+# Purpose  : Returns 0 (true) if the repo basename matches any entry in
+#            EXCLUDE_LIST (semicolon-separated). Case-sensitive exact match.
+# Args     : $1 = repo path
+# ------------------------------------------------------------------------------
+is_excluded() {
+    local repo_path="$1"
+    local repo_name
+    repo_name="$(basename "${repo_path}")"
+
+    if [[ -z "${EXCLUDE_LIST}" ]]; then
+        return 1  # nothing excluded
+    fi
+
+    local IFS_BAK="${IFS}"
+    IFS=';'
+    local entry
+    for entry in ${EXCLUDE_LIST}; do
+        # strip leading/trailing spaces from each entry
+        entry="${entry## }"
+        entry="${entry%% }"
+        if [[ "${repo_name}" == "${entry}" ]]; then
+            IFS="${IFS_BAK}"
+            return 0  # match → excluded
+        fi
+    done
+    IFS="${IFS_BAK}"
+    return 1  # no match
+}
+
 run_one_pass() {
     # Reset counters for this pass
     TOTAL_REPOS=0
@@ -897,9 +1110,9 @@ run_one_pass() {
     log "INFO" "Starting pass – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
     log "INFO" "  Root dir   : ${ROOT_DIR}"
     log "INFO" "  Branch     : ${BRANCH}"
-    log "INFO" "  Cmd mode   : ${CMD_MODE}"
     log "INFO" "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
     log "INFO" "  Simulate   : ${SIMULATE}"
+    log "INFO" "  Exclude    : ${EXCLUDE_LIST:-(none)}"
     if [[ "${SIMULATE}" -eq 1 ]]; then
         log "SIM" "╔══════════════════════════════════════════════════╗"
         log "SIM" "║   SIMULATION MODE ACTIVE – no real changes      ║"
@@ -975,6 +1188,15 @@ run_one_pass() {
         echo "╚══════════════════════════════════════════════════════════════════╝"
         log "INFO" "Repo ${repo_idx}/${TOTAL_REPOS}: ${repo_path}"
 
+        # Check if this repo is in the exclude list
+        if is_excluded "${repo_path}"; then
+            echo "  ⊘ EXCLUDED : ${repo_path}"
+            log "INFO" "  EXCLUDED (--exclude list): ${repo_path}"
+            log_action "EXCLUDED: ${repo_path}"
+            REPOS_SKIPPED=$((REPOS_SKIPPED + 1))
+            continue
+        fi
+
         # Enter the repo directory – pushd saves the current dir on a stack.
         # popd at the end of the block guarantees we return here unconditionally.
         if ! pushd "${repo_path}" > /dev/null 2>&1; then
@@ -985,14 +1207,39 @@ run_one_pass() {
         fi
         log "INFO" "  Working dir: $(pwd)"
 
-        # If using default sequence, verify the target branch exists
+        # Reset per-repo state flags
+        REPO_SYNC_WARNING=""
+        LARGE_FILES_FOUND=0
+
+        # If using default sequence, verify the target branch exists.
+        # FIX v1.3.0: if 'main' is missing but 'master' exists, auto-create main
+        # from master and continue. If neither exists, mark repo as FAILED.
         if [[ -z "${CUSTOM_CMD}" ]]; then
             if ! git show-ref --verify --quiet "refs/heads/${BRANCH}" 2>/dev/null; then
-                log "WARN" "  Branch '${BRANCH}' not found in this repo – skipping."
-                REPOS_SKIPPED=$((REPOS_SKIPPED + 1))
-                log_action "SKIPPED (no branch '${BRANCH}'): ${repo_path}"
-                popd > /dev/null 2>&1
-                continue
+                if [[ "${BRANCH}" == "main" ]] && \
+                   git show-ref --verify --quiet "refs/heads/master" 2>/dev/null; then
+                    if [[ "${SIMULATE}" -eq 0 ]]; then
+                        log "INFO" "  Branch 'main' not found – creating from 'master'."
+                        git checkout -b main master \
+                            < /dev/null \
+                            2> >(tee -a "${STDERR_LOG:-/dev/null}" >&2) || true
+                        log "INFO" "  Branch 'main' created from 'master'."
+                    else
+                        log "SIM" "  [DRY-RUN] Branch 'main' not found – WOULD create from 'master'."
+                    fi
+                    if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+                        REPO_SYNC_WARNING="WARNING main does not exists - created from master"
+                    else
+                        REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / WARNING main does not exists - created from master"
+                    fi
+                else
+                    log "WARN" "  Branch '${BRANCH}' not found and no 'master' fallback – skipping."
+                    echo "  ✘ FAILED : ${repo_path}  (no branch '${BRANCH}', no 'master')"
+                    REPOS_FAILED=$((REPOS_FAILED + 1))
+                    log_action "FAILED (no branch '${BRANCH}', no 'master'): ${repo_path}"
+                    popd > /dev/null 2>&1
+                    continue
+                fi
             fi
         fi
 
@@ -1011,15 +1258,27 @@ run_one_pass() {
 
         # Record outcome
         if [[ "${cmd_exit}" -eq 0 || "${SIMULATE}" -eq 1 ]]; then
-            echo "  ✔ SUCCESS : ${repo_path}"
-            log "OK" "SUCCESS: ${repo_path}"
             REPOS_SYNCED=$((REPOS_SYNCED + 1))
-            log_action "SYNCED: ${repo_path}"
+            if [[ -n "${REPO_SYNC_WARNING}" ]]; then
+                echo "  ✔ SYNCED - ${REPO_SYNC_WARNING} : ${repo_path}"
+                log "OK" "SYNCED - ${REPO_SYNC_WARNING}: ${repo_path}"
+                log_action "SYNCED - ${REPO_SYNC_WARNING}: ${repo_path}"
+            else
+                echo "  ✔ SUCCESS : ${repo_path}"
+                log "OK" "SUCCESS: ${repo_path}"
+                log_action "SYNCED: ${repo_path}"
+            fi
         else
-            echo "  ✘ FAILED  : ${repo_path}  (exit ${cmd_exit})"
-            log "ERROR" "FAILED (exit ${cmd_exit}): ${repo_path}"
             REPOS_FAILED=$((REPOS_FAILED + 1))
-            log_action "FAILED (exit ${cmd_exit}): ${repo_path}"
+            if [[ "${LARGE_FILES_FOUND}" -eq 1 ]]; then
+                echo "  ✘ FAILED - BIG FILES DETECTED : ${repo_path}"
+                log "ERROR" "FAILED - BIG FILES DETECTED: ${repo_path}"
+                log_action "FAILED - BIG FILES DETECTED: ${repo_path}"
+            else
+                echo "  ✘ FAILED  : ${repo_path}  (exit ${cmd_exit})"
+                log "ERROR" "FAILED (exit ${cmd_exit}): ${repo_path}"
+                log_action "FAILED (exit ${cmd_exit}): ${repo_path}"
+            fi
         fi
 
     done  # end repo loop
@@ -1132,14 +1391,6 @@ while [[ $# -gt 0 ]]; do
             CUSTOM_CMD="$2"
             shift 2
             ;;
-        --cmd_mode)
-            [[ -z "${2:-}" ]] && die "--cmd_mode requires: direct or bash-i"
-            if [[ "$2" != "direct" && "$2" != "bash-i" ]]; then
-                die "--cmd_mode must be 'direct' or 'bash-i'. Got: '$2'"
-            fi
-            CMD_MODE="$2"
-            shift 2
-            ;;
         --recurrent)
             [[ -z "${2:-}" ]] && die "--recurrent requires a number of seconds."
             if ! [[ "$2" =~ ^[0-9]+$ ]]; then
@@ -1147,6 +1398,11 @@ while [[ $# -gt 0 ]]; do
             fi
             RECURRENT=1
             RECURRENT_SECONDS="$2"
+            shift 2
+            ;;
+        --exclude)
+            [[ -z "${2:-}" ]] && die "--exclude requires a semicolon-separated list of repo names."
+            EXCLUDE_LIST="$2"
             shift 2
             ;;
 
