@@ -1,5 +1,5 @@
-> **Version** : v1.2.0
-> **Date**    : 2026-03-03
+> **Version** : v1.3.1
+> **Date**    : 2026-03-05
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
 ---
@@ -11,11 +11,11 @@ Pour chaque dépôt trouvé, le script exécute soit :
 
 1. **La séquence de sync par défaut** (sans `--cmd`) :
    ```bash
-   git checkout <branch>        # [a/5]
-   git add .                    # [b/5]
-   git commit -m "commit last version done by syncgit.sh"   # [c/5] sauté si rien à committer
-   git push --set-upstream --force origin <branch>          # [d/5]
-   git push --force origin --all                            # [e/5]
+   git checkout <branch>                                        # [a/5]
+   git add .                                                    # [b/5]
+   git commit -m "commit last version done by syncgit.sh"      # [c/5] sauté si rien à committer
+   git push --set-upstream --force origin <branch>             # [d/5]
+   git push --force origin --all                               # [e/5]
    ```
    Chaque step est affiché avec son statut `✔ done` ou `✘ FAILED (exit N)`.
    Si un step échoue, les steps suivants sont sautés et le repo est marqué FAILED.
@@ -40,7 +40,20 @@ Pour chaque dépôt trouvé, le script exécute soit :
    ```
 
 2. **Une commande personnalisée** via `--cmd "<commande>"`.
-   Utiliser `--cmd_mode bash-i` pour les commandes interactives shell.
+
+---
+
+## Warnings automatiques
+
+Le script peut intervenir automatiquement sur un repo et signaler l'opération via un WARNING :
+
+| Statut   | Warning                                              | Déclencheur                                                                 |
+|----------|------------------------------------------------------|-----------------------------------------------------------------------------|
+| ✔ SYNCED | `WARNING SSH to HTTPS applied`                       | Remote en `git@github.com:` ou `git@gitlab.com:` → converti en HTTPS       |
+| ✔ SYNCED | `WARNING main does not exists - created from master` | Branche `main` absente mais `master` présente → `main` créée depuis master  |
+| ✔ SYNCED | `WARNING current branch <nom> behind main`           | Branche courante ≠ `main` avec changements non commités → auto-commit `wip` |
+| ✔ SYNCED | `WARNING BIG FILES DETECTED - push would fail`       | Blobs > 100MB détectés en historique (en `--simulate` uniquement)           |
+| ✘ FAILED | `BIG FILES DETECTED`                                 | Push échoué + blobs > 100MB détectés dans l'historique git                  |
 
 ---
 
@@ -61,6 +74,9 @@ syncgit.sh --simulate
 
 # Simulation sur un dossier spécifique
 syncgit.sh --simulate --root_dir /mnt/data/Security
+
+# Exclure des repos spécifiques
+syncgit.sh --exec --exclude "LinkedIn-Learning-Downloader;kali-arm"
 
 # Commande personnalisée dans chaque repo
 syncgit.sh --exec --cmd "git pull --rebase"
@@ -86,7 +102,7 @@ syncgit.sh --purge --yes
 | `--logs_dir`    | –      | Dossier pour les fichiers de log             | `./logs`         |
 | `--branch`      | –      | Branche git (défaut main, validée)           | `main`           |
 | `--cmd`         | –      | Commande shell personnalisée par repo        | (séquence défaut)|
-| `--cmd_mode`    | –      | `direct` ou `bash-i` (support alias)         | `direct`         |
+| `--exclude`     | –      | Liste de repos à ignorer (séparés par `;`)   | –                |
 | `--recurrent`   | –      | Répéter toutes les N secondes                | désactivé        |
 | `--prerequis`   | `-pr`  | Vérifier les prérequis                       | –                |
 | `--install`     | `-i`   | Installer les prérequis manquants            | –                |
@@ -104,15 +120,19 @@ syncgit.sh --purge --yes
 - Les logs et résultats sont toujours générés **à côté du script** (via `BASH_SOURCE[0]`),
   peu importe le répertoire depuis lequel le script est appelé
 - Le script ne génère ni ne modifie jamais `README.md` ou `CHANGELOG.md`
+- Les remotes SSH (`git@github.com:` / `git@gitlab.com:`) sont automatiquement convertis en HTTPS
+- En `--simulate`, les blobs > 100MB sont détectés proactivement sans exécuter le push
 
 ---
 
 ## Fichiers générés
 
-| Type      | Chemin                                                    |
-|-----------|-----------------------------------------------------------|
-| Logs      | `<script_dir>/logs/log.syncgit.sh.<TIMESTAMP>.log`        |
-| Résultats | `<script_dir>/results/summary.syncgit.sh.<TIMESTAMP>.txt` |
+| Type          | Chemin                                                          |
+|---------------|-----------------------------------------------------------------|
+| Logs          | `<script_dir>/logs/log.syncgit.sh.<TIMESTAMP>.log`              |
+| Résultats     | `<script_dir>/results/summary.syncgit.sh.<TIMESTAMP>.txt`       |
+| Stderr        | `<script_dir>/logs/stderr.syncgit.sh.<TIMESTAMP>.log`           |
+| Gros fichiers | `<script_dir>/logs/largefiles.syncgit.sh.<TIMESTAMP>.log`       |
 
 ---
 
