@@ -8,15 +8,37 @@
 #                repositories (directories containing a .git folder),
 #                then for each repo either:
 #                  (a) runs the default Git sync sequence on a chosen branch:
+#                        git branch syncgit-snapshot/YYYYMMDD-HHhMM
 #                        git checkout <branch>
 #                        git add .
-#                        git commit -m "commit last version done by syncgit.sh"
+#                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.1
-# DATE         : 2026-03-05
+# VERSION      : v1.3.6
+# DATE         : 2026-03-27
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.6 – 2026-03-27 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --forcepush / -f option to override the remote-ahead guard.
+#                When enabled, pushes proceed even if origin/<branch> is ahead.
+#   v1.3.5 – 2026-03-27 – Bruno DELNOZ
+#       Changed:
+#       - UPDATED: final "Actions performed" display now numbers only
+#                repository-level actions (SYNCED/FAILED/EXCLUDED).
+#                Global run actions (directories/root scan) are shown unnumbered.
+#   v1.3.4 – 2026-03-27 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: pre-push guard for default sync:
+#                if origin/<branch> is ahead of local <branch>, skip push steps
+#                and report FAILED - remote ahead from local
+#   v1.3.3 – 2026-03-27 – Bruno DELNOZ
+#       Changed:
+#       - UPDATED: default commit message now includes user/date/time
+#   v1.3.2 – 2026-03-27 – Bruno DELNOZ
+#       Feature:
+#       - ADDED: create snapshot branch before default sync steps:
+#                syncgit-snapshot/YYYYMMDD-HHhMM
 #   v1.3.1 – 2026-03-05 – Bruno DELNOZ
 #       Bugfix + Feature:
 #       - FIXED: remote conversion direction was wrong (HTTPS→SSH); corrected to
@@ -81,8 +103,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.1"
-SCRIPT_DATE="2026-03-05"
+SCRIPT_VERSION="v1.3.6"
+SCRIPT_DATE="2026-03-27"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -116,6 +138,7 @@ CUSTOM_CMD=""               # If set via --cmd, replaces the default git sequenc
 EXCLUDE_LIST=""             # Semicolon-separated list of repo names to skip (--exclude)
 ACTION_MODE=""              # Which primary action was requested
 PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also passed
+FORCE_PUSH=0                # 1 = bypass remote-ahead guard and force push anyway
 
 # --- Runtime state (computed at startup via init_run_context) ---
 RUN_TS=""                   # Timestamp string generated at run start
@@ -127,6 +150,7 @@ LARGEFILE_LOG=""            # Full path to the large files log for this run
 # --- Per-repo state (reset at the start of each repo) ---
 REPO_SYNC_WARNING=""        # Warning message for current repo (SSH→HTTPS, wip, etc.)
 LARGE_FILES_FOUND=0         # 1 if large files (>100MB) detected in git history
+REPO_FAIL_REASON=""         # Explicit failure reason for current repo (if set)
 
 # --- Execution counters ---
 TOTAL_REPOS=0
@@ -326,9 +350,11 @@ DESCRIPTION:
   Recursively scans a root directory for Git repositories (.git dirs).
   For each repo found, either:
     (a) Default git sync sequence:
+          git branch syncgit-snapshot/YYYYMMDD-HHhMM
           git checkout <branch>
           git add .
-          git commit -m "commit last version done by syncgit.sh"  (skipped if nothing to commit)
+          git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"  (skipped if nothing to commit)
+          [guard] skip push if origin/<branch> is ahead of local (<branch>)
           git push --set-upstream --force origin <branch>
           git push --force origin --all
     (b) Custom command via --cmd "<command>"
@@ -373,6 +399,11 @@ OPTIONS (for use with --exec):
                            Possible: main, master, develop, or any valid branch
                            Validated: only alphanumeric, /, _, -, . allowed
 
+  --forcepush, -f          Bypass remote-ahead protection in default sync.
+                           If origin/<branch> is ahead of local, pushes are
+                           still executed when this flag is enabled.
+                           Default : off (safe mode on)
+
   --simulate, -s           Dry-run mode: logs all actions, makes no changes.
                            Presence of this flag alone activates simulation.
                            Default : off
@@ -380,11 +411,13 @@ OPTIONS (for use with --exec):
   --cmd "<command>"        Custom shell command to run in each repo instead
                            of the default sync sequence.
                            If omitted, the default sequence runs:
-                             [a] git checkout <branch>
-                             [b] git add .
-                             [c] git commit -m "commit last version done by syncgit.sh"
-                             [d] git push --set-upstream --force origin <branch>
-                             [e] git push --force origin --all
+                             [a] git branch syncgit-snapshot/YYYYMMDD-HHhMM
+                             [b] git checkout <branch>
+                             [c] git add .
+                             [d] git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
+                             [guard] if origin/<branch> is ahead -> FAILED "remote ahead from local"
+                             [e] git push --set-upstream --force origin <branch>
+                             [f] git push --force origin --all
                            Example : "git pull --rebase"
                            Example : "rm -f .gigi"
 
@@ -428,6 +461,9 @@ EXAMPLES:
   # Use master branch instead of main:
   ./${SCRIPT_NAME} --exec --branch master
 
+  # Force push even if remote branch is ahead (bypass protection):
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --forcepush
+
   # Repeat every 10 minutes automatically:
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data --recurrent 600
 
@@ -458,6 +494,29 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.6 – 2026-03-27 – Bruno DELNOZ
+  - ADDED: --forcepush / -f to bypass remote-ahead protection.
+           With this option, push steps still run even if origin/<branch>
+           is ahead of local.
+
+## v1.3.5 – 2026-03-27 – Bruno DELNOZ
+  - UPDATED: post-exec "Actions performed" display now numbers only
+           repository actions (SYNCED/FAILED/EXCLUDED).
+           Global run actions are shown as unnumbered bullet lines.
+
+## v1.3.4 – 2026-03-27 – Bruno DELNOZ
+  - ADDED: remote-ahead guard before push in default sequence.
+           If origin/<branch> is ahead of local <branch>, push steps are skipped
+           and repo is reported as: FAILED - remote ahead from local
+
+## v1.3.3 – 2026-03-27 – Bruno DELNOZ
+  - UPDATED: default commit message now includes user/date/time:
+           commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>
+
+## v1.3.2 – 2026-03-27 – Bruno DELNOZ
+  - ADDED: create snapshot branch before default sync sequence:
+           git branch syncgit-snapshot/YYYYMMDD-HHhMM
 
 ## v1.3.1 – 2026-03-05 – Bruno DELNOZ
   - FIXED: remote conversion was HTTPS→SSH (wrong direction); corrected to
@@ -843,6 +902,7 @@ write_result_file() {
         echo "  Branch     : ${BRANCH}"
         echo "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
         echo "  Simulate   : ${SIMULATE}"
+        echo "  Force push : ${FORCE_PUSH}"
         echo "  Exclude    : ${EXCLUDE_LIST:-(none)}"
         echo "  Recurrent  : ${RECURRENT_SECONDS:-(once)}"
         echo "================================================================"
@@ -855,10 +915,24 @@ write_result_file() {
         echo "================================================================"
         echo "  ACTIONS PERFORMED:"
         echo "================================================================"
+        local action
+        for action in "${ACTIONS_DONE[@]}"; do
+            case "${action}" in
+                SYNCED:*|FAILED*|EXCLUDED:*)
+                    ;;
+                *)
+                    echo "  - ${action}"
+                    ;;
+            esac
+        done
         local idx=1
         for action in "${ACTIONS_DONE[@]}"; do
-            echo "  ${idx}. ${action}"
-            idx=$((idx + 1))
+            case "${action}" in
+                SYNCED:*|FAILED*|EXCLUDED:*)
+                    echo "  ${idx}. ${action}"
+                    idx=$((idx + 1))
+                    ;;
+            esac
         done
         echo ""
         echo "  Log file        : ${LOG_FILE}"
@@ -885,10 +959,24 @@ display_post_exec_summary() {
     echo "  Failed                   : ${REPOS_FAILED}"
     echo ""
     echo "  ── Actions performed ────────────────────────────────────────"
+    local action
+    for action in "${ACTIONS_DONE[@]}"; do
+        case "${action}" in
+            SYNCED:*|FAILED*|EXCLUDED:*)
+                ;;
+            *)
+                echo "  - ${action}"
+                ;;
+        esac
+    done
     local idx=1
     for action in "${ACTIONS_DONE[@]}"; do
-        echo "  ${idx}. ${action}"
-        idx=$((idx + 1))
+        case "${action}" in
+            SYNCED:*|FAILED*|EXCLUDED:*)
+                echo "  ${idx}. ${action}"
+                idx=$((idx + 1))
+                ;;
+        esac
     done
     echo ""
     echo "  Log file    : ${LOG_FILE}"
@@ -901,7 +989,8 @@ display_post_exec_summary() {
 # ==============================================================================
 # SECTION 15 – DEFAULT GIT SYNC SEQUENCE
 # Runs the built-in sync when no --cmd is specified.
-# Steps: checkout branch → add all → commit (skip if clean) → push force
+# Steps: create snapshot branch → checkout branch → add all
+#        → commit (skip if clean) → push force → push all
 #
 # NOTE: This function is called AFTER pushd into the repo dir (see run_one_pass).
 # The repo_path argument is used only for log messages, not for cd.
@@ -909,9 +998,30 @@ display_post_exec_summary() {
 
 run_default_git_sync() {
     local repo_path="$1"
-    local _step_total=5
+    local _step_total=6
 
     log "INFO" "  Running default git sync sequence in: ${repo_path}"
+
+    # ── Step a/6 : create snapshot branch ────────────────────────────────────
+    local snapshot_branch="syncgit-snapshot/$(date '+%Y%m%d-%Hh%M')"
+    echo "  ┌─ [a/${_step_total}] git branch ${snapshot_branch}"
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        run_cmd \
+            "git branch ${snapshot_branch}" \
+            "git branch ${snapshot_branch}"
+        echo "  └─ ✔ done (simulated)"
+    else
+        local snap_exit=0
+        run_cmd \
+            "git branch ${snapshot_branch}" \
+            "git branch ${snapshot_branch}" || snap_exit=$?
+        if [[ "${snap_exit}" -ne 0 ]]; then
+            echo "  └─ ✘ FAILED (exit ${snap_exit}) – snapshot branch creation"
+            log "ERROR" "  snapshot branch creation failed (exit ${snap_exit})"
+            return "${snap_exit}"
+        fi
+        echo "  └─ ✔ done"
+    fi
 
     # ── Pre-checkout : auto-commit wip on current branch if needed ───────────
     # If the current branch is not the target branch AND has uncommitted changes,
@@ -937,8 +1047,8 @@ run_default_git_sync() {
         fi
     fi
 
-    # ── Step a/5 : checkout ──────────────────────────────────────────────────
-    echo "  ┌─ [a/${_step_total}] git checkout ${BRANCH}"
+    # ── Step b/6 : checkout ──────────────────────────────────────────────────
+    echo "  ┌─ [b/${_step_total}] git checkout ${BRANCH}"
     local co_exit=0
     run_cmd "git checkout ${BRANCH}" "git checkout ${BRANCH}" || co_exit=$?
     if [[ "${co_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
@@ -948,24 +1058,37 @@ run_default_git_sync() {
     fi
     echo "  └─ ✔ done"
 
-    # ── Step b/5 : add ───────────────────────────────────────────────────────
-    echo "  ┌─ [b/${_step_total}] git add ."
+    # ── Step c/6 : add ───────────────────────────────────────────────────────
+    echo "  ┌─ [c/${_step_total}] git add ."
     run_cmd "git add ." "git add ."
     echo "  └─ ✔ done"
 
-    # ── Step c/5 : commit ────────────────────────────────────────────────────
-    echo "  ┌─ [c/${_step_total}] git commit"
+    # ── Step d/6 : commit ────────────────────────────────────────────────────
+    echo "  ┌─ [d/${_step_total}] git commit"
+    local commit_user
+    local commit_date
+    local commit_time
+    local commit_msg
+    local commit_msg_escaped
+    commit_user="$(git config user.name 2>/dev/null || true)"
+    if [[ -z "${commit_user}" ]]; then
+        commit_user="$(whoami 2>/dev/null || echo "unknown")"
+    fi
+    commit_date="$(date '+%Y-%m-%d')"
+    commit_time="$(date '+%H:%M:%S')"
+    commit_msg="commit last version done by syncgit.sh user: ${commit_user}   date : ${commit_date} time ${commit_time}"
+    printf -v commit_msg_escaped "%q" "${commit_msg}"
     if [[ "${SIMULATE}" -eq 1 ]]; then
         run_cmd \
-            "git commit -m 'commit last version done by syncgit.sh' (if anything staged)" \
-            "git commit -m 'commit last version done by syncgit.sh'"
+            "git commit -m '${commit_msg}' (if anything staged)" \
+            "git commit -m ${commit_msg_escaped}"
         echo "  └─ ✔ done (simulated)"
     else
         if ! git diff --cached --quiet 2>/dev/null; then
             local commit_exit=0
             run_cmd \
-                "git commit -m 'commit last version done by syncgit.sh'" \
-                "git commit -m 'commit last version done by syncgit.sh'" || commit_exit=$?
+                "git commit -m '${commit_msg}'" \
+                "git commit -m ${commit_msg_escaped}" || commit_exit=$?
             if [[ "${commit_exit}" -ne 0 ]]; then
                 echo "  └─ ✘ FAILED (exit ${commit_exit}) – commit"
                 log "ERROR" "  commit failed (exit ${commit_exit})"
@@ -1010,8 +1133,43 @@ run_default_git_sync() {
         fi
     fi
 
-    # ── Step d/5 : push branch ───────────────────────────────────────────────
-    echo "  ┌─ [d/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
+    # ── Pre-push guard : skip if remote branch is ahead of local ─────────────
+    # Default rule: if origin/<branch> has commits not present locally,
+    # do not push (force or --all) and report FAILED in final summary.
+    # Override: when --forcepush/-f is enabled, this protection is bypassed.
+    if [[ "${SIMULATE}" -eq 0 ]]; then
+        local fetch_exit=0
+        run_cmd \
+            "git fetch origin ${BRANCH} (remote-ahead guard)" \
+            "git fetch origin ${BRANCH}" || fetch_exit=$?
+        if [[ "${fetch_exit}" -ne 0 ]]; then
+            log "ERROR" "  fetch origin ${BRANCH} failed (exit ${fetch_exit})"
+            return "${fetch_exit}"
+        fi
+
+        if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}" 2>/dev/null; then
+            local ahead_behind
+            local local_ahead=0
+            local remote_ahead=0
+            ahead_behind=$(git rev-list --left-right --count "${BRANCH}...origin/${BRANCH}" 2>/dev/null || true)
+            if [[ -n "${ahead_behind}" ]]; then
+                read -r local_ahead remote_ahead <<< "${ahead_behind}"
+            fi
+            if [[ "${remote_ahead}" -gt 0 ]]; then
+                if [[ "${FORCE_PUSH}" -eq 1 ]]; then
+                    log "WARN" "  Remote ahead guard bypassed by --forcepush: origin/${BRANCH} is ahead of local ${BRANCH} (${remote_ahead} commit(s))."
+                else
+                    echo "  └─ ✘ FAILED – remote ahead from local (origin/${BRANCH})"
+                    log "ERROR" "  Remote ahead guard triggered: origin/${BRANCH} is ahead of local ${BRANCH} (${remote_ahead} commit(s))."
+                    REPO_FAIL_REASON="remote ahead from local"
+                    return 40
+                fi
+            fi
+        fi
+    fi
+
+    # ── Step e/6 : push branch ───────────────────────────────────────────────
+    echo "  ┌─ [e/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
     local push_exit=0
     run_cmd \
         "git push --set-upstream --force origin ${BRANCH}" \
@@ -1029,8 +1187,8 @@ run_default_git_sync() {
     fi
     echo "  └─ ✔ done"
 
-    # ── Step e/5 : push all branches ─────────────────────────────────────────
-    echo "  ┌─ [e/${_step_total}] git push --force origin --all"
+    # ── Step f/6 : push all branches ─────────────────────────────────────────
+    echo "  ┌─ [f/${_step_total}] git push --force origin --all"
     local pushall_exit=0
     run_cmd \
         "git push --force origin --all" \
@@ -1210,6 +1368,7 @@ run_one_pass() {
         # Reset per-repo state flags
         REPO_SYNC_WARNING=""
         LARGE_FILES_FOUND=0
+        REPO_FAIL_REASON=""
 
         # If using default sequence, verify the target branch exists.
         # FIX v1.3.0: if 'main' is missing but 'master' exists, auto-create main
@@ -1274,6 +1433,10 @@ run_one_pass() {
                 echo "  ✘ FAILED - BIG FILES DETECTED : ${repo_path}"
                 log "ERROR" "FAILED - BIG FILES DETECTED: ${repo_path}"
                 log_action "FAILED - BIG FILES DETECTED: ${repo_path}"
+            elif [[ "${REPO_FAIL_REASON}" == "remote ahead from local" ]]; then
+                echo "  ✘ FAILED - remote ahead from local : ${repo_path}"
+                log "ERROR" "FAILED - remote ahead from local: ${repo_path}"
+                log_action "FAILED - remote ahead from local: ${repo_path}"
             else
                 echo "  ✘ FAILED  : ${repo_path}  (exit ${cmd_exit})"
                 log "ERROR" "FAILED (exit ${cmd_exit}): ${repo_path}"
@@ -1357,6 +1520,10 @@ while [[ $# -gt 0 ]]; do
         # ── Modifiers ───────────────────────────────────────────────────────
         --yes)
             PURGE_YES=1
+            shift
+            ;;
+        --forcepush|-f)
+            FORCE_PUSH=1
             shift
             ;;
         --root_dir)

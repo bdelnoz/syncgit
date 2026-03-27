@@ -4,6 +4,56 @@
 
 ---
 
+## v1.3.6 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: nouvel argument `--forcepush` (`-f`) pour forcer les push même si
+  le remote est ahead.
+- **UPDATED**: garde-fou `remote ahead` reste actif par défaut, mais devient
+  contournable explicitement via `--forcepush`.
+
+---
+
+## v1.3.5 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **UPDATED**: affichage du bloc final `Actions performed` :
+  seules les actions repo (`SYNCED` / `FAILED` / `EXCLUDED`) sont numérotées.
+  Les actions globales de run (setup/validation/scan) restent affichées sans numéro.
+
+---
+
+## v1.3.4 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: garde-fou avant push sur la séquence par défaut :
+  `git fetch origin <branch>` puis comparaison local vs `origin/<branch>`.
+  Si le remote est ahead, les push sont ignorés et le repo sort en
+  `FAILED - remote ahead from local`.
+
+---
+
+## v1.3.3 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **UPDATED**: message de commit par défaut enrichi avec user/date/time :
+  `commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>`
+
+---
+
+## v1.3.2 – 2026-03-27 – Bruno DELNOZ
+
+Feature.
+
+- **ADDED**: création d'une branche snapshot avant la séquence de sync par défaut :
+  `git branch syncgit-snapshot/YYYYMMDD-HHhMM`
+
+---
+
 ## v1.3.1 – 2026-03-05 – Bruno DELNOZ
 
 Bugfix + Features + Nettoyage.
