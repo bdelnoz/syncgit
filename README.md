@@ -1,4 +1,4 @@
-> **Version** : v1.3.2
+> **Version** : v1.3.4
 > **Date**    : 2026-03-27
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
@@ -14,7 +14,8 @@ Pour chaque dépôt trouvé, le script exécute soit :
    git branch syncgit-snapshot/YYYYMMDD-HHhMM                  # [a/6]
    git checkout <branch>                                        # [b/6]
    git add .                                                    # [c/6]
-   git commit -m "commit last version done by syncgit.sh"      # [d/6] sauté si rien à committer
+   git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"  # [d/6] sauté si rien à committer
+   [guard] si `origin/<branch>` est ahead, skip push et FAIL    # pré-check
    git push --set-upstream --force origin <branch>             # [e/6]
    git push --force origin --all                               # [f/6]
    ```
@@ -57,6 +58,7 @@ Le script peut intervenir automatiquement sur un repo et signaler l'opération v
 | ✔ SYNCED | `WARNING current branch <nom> behind main`           | Branche courante ≠ `main` avec changements non commités → auto-commit `wip` |
 | ✔ SYNCED | `WARNING BIG FILES DETECTED - push would fail`       | Blobs > 100MB détectés en historique (en `--simulate` uniquement)           |
 | ✘ FAILED | `BIG FILES DETECTED`                                 | Push échoué + blobs > 100MB détectés dans l'historique git                  |
+| ✘ FAILED | `remote ahead from local`                            | `origin/<branch>` contient des commits absents en local → push forcé ignoré |
 
 ---
 
