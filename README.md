@@ -1,5 +1,5 @@
-> **Version** : v1.3.1
-> **Date**    : 2026-03-05
+> **Version** : v1.3.4
+> **Date**    : 2026-03-27
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
 ---
@@ -11,11 +11,13 @@ Pour chaque dépôt trouvé, le script exécute soit :
 
 1. **La séquence de sync par défaut** (sans `--cmd`) :
    ```bash
-   git checkout <branch>                                        # [a/5]
-   git add .                                                    # [b/5]
-   git commit -m "commit last version done by syncgit.sh"      # [c/5] sauté si rien à committer
-   git push --set-upstream --force origin <branch>             # [d/5]
-   git push --force origin --all                               # [e/5]
+   git branch syncgit-snapshot/YYYYMMDD-HHhMM                  # [a/6]
+   git checkout <branch>                                        # [b/6]
+   git add .                                                    # [c/6]
+   git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"  # [d/6] sauté si rien à committer
+   [guard] si `origin/<branch>` est ahead, skip push et FAIL    # pré-check
+   git push --set-upstream --force origin <branch>             # [e/6]
+   git push --force origin --all                               # [f/6]
    ```
    Chaque step est affiché avec son statut `✔ done` ou `✘ FAILED (exit N)`.
    Si un step échoue, les steps suivants sont sautés et le repo est marqué FAILED.
@@ -26,16 +28,18 @@ Pour chaque dépôt trouvé, le script exécute soit :
    ║  REPO [3/12]  /mnt/data2_78g/Security/scripts/mon-projet
    ║  DIR  : /mnt/data2_78g/Security/scripts/mon-projet
    ╚══════════════════════════════════════════════════════════════════╝
-     ┌─ [a/5] git checkout main
-     └─ ✔ done
-     ┌─ [b/5] git add .
-     └─ ✔ done
-     ┌─ [c/5] git commit
-     └─ ✔ nothing to commit – skipped
-     ┌─ [d/5] git push --set-upstream --force origin main
-     └─ ✔ done
-     ┌─ [e/5] git push --force origin --all
-     └─ ✔ done
+    ┌─ [a/6] git branch syncgit-snapshot/20260327-15h47
+    └─ ✔ done
+    ┌─ [b/6] git checkout main
+    └─ ✔ done
+    ┌─ [c/6] git add .
+    └─ ✔ done
+    ┌─ [d/6] git commit
+    └─ ✔ nothing to commit – skipped
+    ┌─ [e/6] git push --set-upstream --force origin main
+    └─ ✔ done
+    ┌─ [f/6] git push --force origin --all
+    └─ ✔ done
      ✔ SUCCESS : /mnt/data2_78g/Security/scripts/mon-projet
    ```
 
@@ -54,6 +58,7 @@ Le script peut intervenir automatiquement sur un repo et signaler l'opération v
 | ✔ SYNCED | `WARNING current branch <nom> behind main`           | Branche courante ≠ `main` avec changements non commités → auto-commit `wip` |
 | ✔ SYNCED | `WARNING BIG FILES DETECTED - push would fail`       | Blobs > 100MB détectés en historique (en `--simulate` uniquement)           |
 | ✘ FAILED | `BIG FILES DETECTED`                                 | Push échoué + blobs > 100MB détectés dans l'historique git                  |
+| ✘ FAILED | `remote ahead from local`                            | `origin/<branch>` contient des commits absents en local → push forcé ignoré |
 
 ---
 

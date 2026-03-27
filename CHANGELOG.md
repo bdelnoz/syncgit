@@ -4,6 +4,35 @@
 
 ---
 
+## v1.3.4 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: garde-fou avant push sur la séquence par défaut :
+  `git fetch origin <branch>` puis comparaison local vs `origin/<branch>`.
+  Si le remote est ahead, les push sont ignorés et le repo sort en
+  `FAILED - remote ahead from local`.
+
+---
+
+## v1.3.3 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **UPDATED**: message de commit par défaut enrichi avec user/date/time :
+  `commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>`
+
+---
+
+## v1.3.2 – 2026-03-27 – Bruno DELNOZ
+
+Feature.
+
+- **ADDED**: création d'une branche snapshot avant la séquence de sync par défaut :
+  `git branch syncgit-snapshot/YYYYMMDD-HHhMM`
+
+---
+
 ## v1.3.1 – 2026-03-05 – Bruno DELNOZ
 
 Bugfix + Features + Nettoyage.
