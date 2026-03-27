@@ -14,10 +14,15 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.4
+# VERSION      : v1.3.5
 # DATE         : 2026-03-27
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.5 – 2026-03-27 – Bruno DELNOZ
+#       Changed:
+#       - UPDATED: final "Actions performed" display now numbers only
+#                repository-level actions (SYNCED/FAILED/EXCLUDED).
+#                Global run actions (directories/root scan) are shown unnumbered.
 #   v1.3.4 – 2026-03-27 – Bruno DELNOZ
 #       Changed:
 #       - ADDED: pre-push guard for default sync:
@@ -94,7 +99,7 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.4"
+SCRIPT_VERSION="v1.3.5"
 SCRIPT_DATE="2026-03-27"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
@@ -476,6 +481,11 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.5 – 2026-03-27 – Bruno DELNOZ
+  - UPDATED: post-exec "Actions performed" display now numbers only
+           repository actions (SYNCED/FAILED/EXCLUDED).
+           Global run actions are shown as unnumbered bullet lines.
 
 ## v1.3.4 – 2026-03-27 – Bruno DELNOZ
   - ADDED: remote-ahead guard before push in default sequence.
@@ -886,10 +896,24 @@ write_result_file() {
         echo "================================================================"
         echo "  ACTIONS PERFORMED:"
         echo "================================================================"
+        local action
+        for action in "${ACTIONS_DONE[@]}"; do
+            case "${action}" in
+                SYNCED:*|FAILED*|EXCLUDED:*)
+                    ;;
+                *)
+                    echo "  - ${action}"
+                    ;;
+            esac
+        done
         local idx=1
         for action in "${ACTIONS_DONE[@]}"; do
-            echo "  ${idx}. ${action}"
-            idx=$((idx + 1))
+            case "${action}" in
+                SYNCED:*|FAILED*|EXCLUDED:*)
+                    echo "  ${idx}. ${action}"
+                    idx=$((idx + 1))
+                    ;;
+            esac
         done
         echo ""
         echo "  Log file        : ${LOG_FILE}"
@@ -916,10 +940,24 @@ display_post_exec_summary() {
     echo "  Failed                   : ${REPOS_FAILED}"
     echo ""
     echo "  ── Actions performed ────────────────────────────────────────"
+    local action
+    for action in "${ACTIONS_DONE[@]}"; do
+        case "${action}" in
+            SYNCED:*|FAILED*|EXCLUDED:*)
+                ;;
+            *)
+                echo "  - ${action}"
+                ;;
+        esac
+    done
     local idx=1
     for action in "${ACTIONS_DONE[@]}"; do
-        echo "  ${idx}. ${action}"
-        idx=$((idx + 1))
+        case "${action}" in
+            SYNCED:*|FAILED*|EXCLUDED:*)
+                echo "  ${idx}. ${action}"
+                idx=$((idx + 1))
+                ;;
+        esac
     done
     echo ""
     echo "  Log file    : ${LOG_FILE}"

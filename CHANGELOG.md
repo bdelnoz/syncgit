@@ -4,6 +4,16 @@
 
 ---
 
+## v1.3.5 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **UPDATED**: affichage du bloc final `Actions performed` :
+  seules les actions repo (`SYNCED` / `FAILED` / `EXCLUDED`) sont numérotées.
+  Les actions globales de run (setup/validation/scan) restent affichées sans numéro.
+
+---
+
 ## v1.3.4 – 2026-03-27 – Bruno DELNOZ
 
 Changed.

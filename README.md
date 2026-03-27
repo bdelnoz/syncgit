@@ -1,4 +1,4 @@
-> **Version** : v1.3.4
+> **Version** : v1.3.5
 > **Date**    : 2026-03-27
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
@@ -127,6 +127,8 @@ syncgit.sh --purge --yes
 - Le script ne génère ni ne modifie jamais `README.md` ou `CHANGELOG.md`
 - Les remotes SSH (`git@github.com:` / `git@gitlab.com:`) sont automatiquement convertis en HTTPS
 - En `--simulate`, les blobs > 100MB sont détectés proactivement sans exécuter le push
+- Dans le résumé final, seules les actions repo (`SYNCED`/`FAILED`/`EXCLUDED`) sont numérotées ;
+  les actions globales (préparation/racine/scan) restent affichées sans numéro
 
 ---
 
