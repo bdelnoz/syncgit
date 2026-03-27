@@ -4,6 +4,15 @@
 
 ---
 
+## v1.3.2 – 2026-03-27 – Bruno DELNOZ
+
+Feature.
+
+- **ADDED**: création d'une branche snapshot avant la séquence de sync par défaut :
+  `git branch syncgit-snapshot/YYYYMMDD-HHhMM`
+
+---
+
 ## v1.3.1 – 2026-03-05 – Bruno DELNOZ
 
 Bugfix + Features + Nettoyage.

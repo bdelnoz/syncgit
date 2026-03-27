@@ -8,15 +8,20 @@
 #                repositories (directories containing a .git folder),
 #                then for each repo either:
 #                  (a) runs the default Git sync sequence on a chosen branch:
+#                        git branch syncgit-snapshot/YYYYMMDD-HHhMM
 #                        git checkout <branch>
 #                        git add .
 #                        git commit -m "commit last version done by syncgit.sh"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.1
-# DATE         : 2026-03-05
+# VERSION      : v1.3.2
+# DATE         : 2026-03-27
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.2 – 2026-03-27 – Bruno DELNOZ
+#       Feature:
+#       - ADDED: create snapshot branch before default sync steps:
+#                syncgit-snapshot/YYYYMMDD-HHhMM
 #   v1.3.1 – 2026-03-05 – Bruno DELNOZ
 #       Bugfix + Feature:
 #       - FIXED: remote conversion direction was wrong (HTTPS→SSH); corrected to
@@ -81,8 +86,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.1"
-SCRIPT_DATE="2026-03-05"
+SCRIPT_VERSION="v1.3.2"
+SCRIPT_DATE="2026-03-27"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -326,6 +331,7 @@ DESCRIPTION:
   Recursively scans a root directory for Git repositories (.git dirs).
   For each repo found, either:
     (a) Default git sync sequence:
+          git branch syncgit-snapshot/YYYYMMDD-HHhMM
           git checkout <branch>
           git add .
           git commit -m "commit last version done by syncgit.sh"  (skipped if nothing to commit)
@@ -380,11 +386,12 @@ OPTIONS (for use with --exec):
   --cmd "<command>"        Custom shell command to run in each repo instead
                            of the default sync sequence.
                            If omitted, the default sequence runs:
-                             [a] git checkout <branch>
-                             [b] git add .
-                             [c] git commit -m "commit last version done by syncgit.sh"
-                             [d] git push --set-upstream --force origin <branch>
-                             [e] git push --force origin --all
+                             [a] git branch syncgit-snapshot/YYYYMMDD-HHhMM
+                             [b] git checkout <branch>
+                             [c] git add .
+                             [d] git commit -m "commit last version done by syncgit.sh"
+                             [e] git push --set-upstream --force origin <branch>
+                             [f] git push --force origin --all
                            Example : "git pull --rebase"
                            Example : "rm -f .gigi"
 
@@ -458,6 +465,10 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.2 – 2026-03-27 – Bruno DELNOZ
+  - ADDED: create snapshot branch before default sync sequence:
+           git branch syncgit-snapshot/YYYYMMDD-HHhMM
 
 ## v1.3.1 – 2026-03-05 – Bruno DELNOZ
   - FIXED: remote conversion was HTTPS→SSH (wrong direction); corrected to
@@ -901,7 +912,8 @@ display_post_exec_summary() {
 # ==============================================================================
 # SECTION 15 – DEFAULT GIT SYNC SEQUENCE
 # Runs the built-in sync when no --cmd is specified.
-# Steps: checkout branch → add all → commit (skip if clean) → push force
+# Steps: create snapshot branch → checkout branch → add all
+#        → commit (skip if clean) → push force → push all
 #
 # NOTE: This function is called AFTER pushd into the repo dir (see run_one_pass).
 # The repo_path argument is used only for log messages, not for cd.
@@ -909,9 +921,30 @@ display_post_exec_summary() {
 
 run_default_git_sync() {
     local repo_path="$1"
-    local _step_total=5
+    local _step_total=6
 
     log "INFO" "  Running default git sync sequence in: ${repo_path}"
+
+    # ── Step a/6 : create snapshot branch ────────────────────────────────────
+    local snapshot_branch="syncgit-snapshot/$(date '+%Y%m%d-%Hh%M')"
+    echo "  ┌─ [a/${_step_total}] git branch ${snapshot_branch}"
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        run_cmd \
+            "git branch ${snapshot_branch}" \
+            "git branch ${snapshot_branch}"
+        echo "  └─ ✔ done (simulated)"
+    else
+        local snap_exit=0
+        run_cmd \
+            "git branch ${snapshot_branch}" \
+            "git branch ${snapshot_branch}" || snap_exit=$?
+        if [[ "${snap_exit}" -ne 0 ]]; then
+            echo "  └─ ✘ FAILED (exit ${snap_exit}) – snapshot branch creation"
+            log "ERROR" "  snapshot branch creation failed (exit ${snap_exit})"
+            return "${snap_exit}"
+        fi
+        echo "  └─ ✔ done"
+    fi
 
     # ── Pre-checkout : auto-commit wip on current branch if needed ───────────
     # If the current branch is not the target branch AND has uncommitted changes,
@@ -937,8 +970,8 @@ run_default_git_sync() {
         fi
     fi
 
-    # ── Step a/5 : checkout ──────────────────────────────────────────────────
-    echo "  ┌─ [a/${_step_total}] git checkout ${BRANCH}"
+    # ── Step b/6 : checkout ──────────────────────────────────────────────────
+    echo "  ┌─ [b/${_step_total}] git checkout ${BRANCH}"
     local co_exit=0
     run_cmd "git checkout ${BRANCH}" "git checkout ${BRANCH}" || co_exit=$?
     if [[ "${co_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
@@ -948,13 +981,13 @@ run_default_git_sync() {
     fi
     echo "  └─ ✔ done"
 
-    # ── Step b/5 : add ───────────────────────────────────────────────────────
-    echo "  ┌─ [b/${_step_total}] git add ."
+    # ── Step c/6 : add ───────────────────────────────────────────────────────
+    echo "  ┌─ [c/${_step_total}] git add ."
     run_cmd "git add ." "git add ."
     echo "  └─ ✔ done"
 
-    # ── Step c/5 : commit ────────────────────────────────────────────────────
-    echo "  ┌─ [c/${_step_total}] git commit"
+    # ── Step d/6 : commit ────────────────────────────────────────────────────
+    echo "  ┌─ [d/${_step_total}] git commit"
     if [[ "${SIMULATE}" -eq 1 ]]; then
         run_cmd \
             "git commit -m 'commit last version done by syncgit.sh' (if anything staged)" \
@@ -1010,8 +1043,8 @@ run_default_git_sync() {
         fi
     fi
 
-    # ── Step d/5 : push branch ───────────────────────────────────────────────
-    echo "  ┌─ [d/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
+    # ── Step e/6 : push branch ───────────────────────────────────────────────
+    echo "  ┌─ [e/${_step_total}] git push --set-upstream --force origin ${BRANCH}"
     local push_exit=0
     run_cmd \
         "git push --set-upstream --force origin ${BRANCH}" \
@@ -1029,8 +1062,8 @@ run_default_git_sync() {
     fi
     echo "  └─ ✔ done"
 
-    # ── Step e/5 : push all branches ─────────────────────────────────────────
-    echo "  ┌─ [e/${_step_total}] git push --force origin --all"
+    # ── Step f/6 : push all branches ─────────────────────────────────────────
+    echo "  ┌─ [f/${_step_total}] git push --force origin --all"
     local pushall_exit=0
     run_cmd \
         "git push --force origin --all" \
