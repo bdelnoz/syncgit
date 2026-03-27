@@ -4,6 +4,17 @@
 
 ---
 
+## v1.3.6 – 2026-03-27 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: nouvel argument `--forcepush` (`-f`) pour forcer les push même si
+  le remote est ahead.
+- **UPDATED**: garde-fou `remote ahead` reste actif par défaut, mais devient
+  contournable explicitement via `--forcepush`.
+
+---
+
 ## v1.3.5 – 2026-03-27 – Bruno DELNOZ
 
 Changed.

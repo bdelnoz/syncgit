@@ -1,4 +1,4 @@
-> **Version** : v1.3.5
+> **Version** : v1.3.6
 > **Date**    : 2026-03-27
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
@@ -15,7 +15,7 @@ Pour chaque dépôt trouvé, le script exécute soit :
    git checkout <branch>                                        # [b/6]
    git add .                                                    # [c/6]
    git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"  # [d/6] sauté si rien à committer
-   [guard] si `origin/<branch>` est ahead, skip push et FAIL    # pré-check
+   [guard] si `origin/<branch>` est ahead, skip push et FAIL (sauf `--forcepush`)  # pré-check
    git push --set-upstream --force origin <branch>             # [e/6]
    git push --force origin --all                               # [f/6]
    ```
@@ -74,6 +74,9 @@ syncgit.sh --exec
 # Sync sur un dossier racine spécifique
 syncgit.sh --exec --root_dir /mnt/data/Security
 
+# Forcer les push même si le remote est ahead (dangerous)
+syncgit.sh --exec --root_dir /mnt/data/Security --forcepush
+
 # Simulation (dry-run, aucun changement réel)
 syncgit.sh --simulate
 
@@ -106,6 +109,7 @@ syncgit.sh --purge --yes
 | `--results_dir` | –      | Alias de `--dest_dir`                        | `./results`      |
 | `--logs_dir`    | –      | Dossier pour les fichiers de log             | `./logs`         |
 | `--branch`      | –      | Branche git (défaut main, validée)           | `main`           |
+| `--forcepush`   | `-f`   | Force les push même si le remote est ahead    | désactivé        |
 | `--cmd`         | –      | Commande shell personnalisée par repo        | (séquence défaut)|
 | `--exclude`     | –      | Liste de repos à ignorer (séparés par `;`)   | –                |
 | `--recurrent`   | –      | Répéter toutes les N secondes                | désactivé        |
@@ -129,6 +133,7 @@ syncgit.sh --purge --yes
 - En `--simulate`, les blobs > 100MB sont détectés proactivement sans exécuter le push
 - Dans le résumé final, seules les actions repo (`SYNCED`/`FAILED`/`EXCLUDED`) sont numérotées ;
   les actions globales (préparation/racine/scan) restent affichées sans numéro
+- Le garde-fou `remote ahead` est actif par défaut ; `--forcepush` (`-f`) permet de l’ignorer
 
 ---
 
