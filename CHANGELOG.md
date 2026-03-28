@@ -1,6 +1,24 @@
+<!--
+Document : CHANGELOG.md
+Auteur : Bruno DELNOZ
+Email : bruno.delnoz@protonmail.com
+Version : v1.3.7
+Date : 2026-03-28 02:30
+-->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.3.7 – 2026-03-28 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: new argument `--cpagentsmd` to copy the master `./AGENTS.md`
+  (the one located next to `syncgit.sh`) into every detected repository.
+- **UPDATED**: copy is forced with overwrite behavior (`cp -f`) when
+  `<repo>/AGENTS.md` already exists.
 
 ---
 

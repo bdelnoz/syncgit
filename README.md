@@ -1,5 +1,12 @@
-> **Version** : v1.3.6
-> **Date**    : 2026-03-27
+<!--
+Document : README.md
+Auteur : Bruno DELNOZ
+Email : bruno.delnoz@protonmail.com
+Version : v1.3.7
+Date : 2026-03-28 02:30
+-->
+> **Version** : v1.3.7
+> **Date**    : 2026-03-28
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
 ---
@@ -77,6 +84,9 @@ syncgit.sh --exec --root_dir /mnt/data/Security
 # Forcer les push même si le remote est ahead (dangerous)
 syncgit.sh --exec --root_dir /mnt/data/Security --forcepush
 
+# Copier le AGENTS.md master dans chaque repo avant traitement
+syncgit.sh --exec --root_dir /mnt/data/Security --cpagentsmd
+
 # Simulation (dry-run, aucun changement réel)
 syncgit.sh --simulate
 
@@ -110,6 +120,7 @@ syncgit.sh --purge --yes
 | `--logs_dir`    | –      | Dossier pour les fichiers de log             | `./logs`         |
 | `--branch`      | –      | Branche git (défaut main, validée)           | `main`           |
 | `--forcepush`   | `-f`   | Force les push même si le remote est ahead    | désactivé        |
+| `--cpagentsmd`  | –      | Copie le `AGENTS.md` master dans chaque repo (overwrite forcé) | désactivé |
 | `--cmd`         | –      | Commande shell personnalisée par repo        | (séquence défaut)|
 | `--exclude`     | –      | Liste de repos à ignorer (séparés par `;`)   | –                |
 | `--recurrent`   | –      | Répéter toutes les N secondes                | désactivé        |
@@ -134,6 +145,7 @@ syncgit.sh --purge --yes
 - Dans le résumé final, seules les actions repo (`SYNCED`/`FAILED`/`EXCLUDED`) sont numérotées ;
   les actions globales (préparation/racine/scan) restent affichées sans numéro
 - Le garde-fou `remote ahead` est actif par défaut ; `--forcepush` (`-f`) permet de l’ignorer
+- `--cpagentsmd` copie `${SCRIPT_DIR}/AGENTS.md` vers `<repo>/AGENTS.md` avant toute autre opération repo (overwrite forcé)
 
 ---
 
