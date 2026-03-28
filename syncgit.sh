@@ -14,10 +14,15 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.6
-# DATE         : 2026-03-27
+# VERSION      : v1.3.7
+# DATE         : 2026-03-28
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.7 – 2026-03-28 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --cpagentsmd option to copy ${SCRIPT_DIR}/AGENTS.md
+#                into every detected repository before any other repo operation
+#                (forced overwrite when destination file already exists).
 #   v1.3.6 – 2026-03-27 – Bruno DELNOZ
 #       Changed:
 #       - ADDED: --forcepush / -f option to override the remote-ahead guard.
@@ -103,8 +108,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.6"
-SCRIPT_DATE="2026-03-27"
+SCRIPT_VERSION="v1.3.7"
+SCRIPT_DATE="2026-03-28"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -139,6 +144,7 @@ EXCLUDE_LIST=""             # Semicolon-separated list of repo names to skip (--
 ACTION_MODE=""              # Which primary action was requested
 PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also passed
 FORCE_PUSH=0                # 1 = bypass remote-ahead guard and force push anyway
+CP_AGENTS_MD=0              # 1 = copy SCRIPT_DIR/AGENTS.md into each detected repo
 
 # --- Runtime state (computed at startup via init_run_context) ---
 RUN_TS=""                   # Timestamp string generated at run start
@@ -404,6 +410,12 @@ OPTIONS (for use with --exec):
                            still executed when this flag is enabled.
                            Default : off (safe mode on)
 
+  --cpagentsmd             Copy ${SCRIPT_DIR}/AGENTS.md into each detected
+                           repository BEFORE any repo operation.
+                           Destination: <repo>/AGENTS.md
+                           Behavior : forced overwrite if file already exists.
+                           Default  : off
+
   --simulate, -s           Dry-run mode: logs all actions, makes no changes.
                            Presence of this flag alone activates simulation.
                            Default : off
@@ -464,6 +476,9 @@ EXAMPLES:
   # Force push even if remote branch is ahead (bypass protection):
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --forcepush
 
+  # Copy master AGENTS.md into each repo before processing:
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --cpagentsmd
+
   # Repeat every 10 minutes automatically:
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data --recurrent 600
 
@@ -494,6 +509,11 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.7 – 2026-03-28 – Bruno DELNOZ
+  - ADDED: --cpagentsmd to copy ${SCRIPT_DIR}/AGENTS.md into each detected
+           repository before any other repo operation.
+           Destination AGENTS.md is always overwritten.
 
 ## v1.3.6 – 2026-03-27 – Bruno DELNOZ
   - ADDED: --forcepush / -f to bypass remote-ahead protection.
@@ -1208,6 +1228,38 @@ run_default_git_sync() {
     return 0
 }
 
+# ------------------------------------------------------------------------------
+# Function : copy_master_agentsmd_to_repo
+# Purpose  : Copy SCRIPT_DIR/AGENTS.md to <repo>/AGENTS.md before any other
+#            repository operation when --cpagentsmd is enabled.
+#            Destination is always overwritten (cp -f behavior).
+# Args     : $1 = repo path
+# Returns  : 0 on success, non-zero on failure
+# ------------------------------------------------------------------------------
+copy_master_agentsmd_to_repo() {
+    local repo_path="$1"
+    local source_agents="${SCRIPT_DIR}/AGENTS.md"
+    local dest_agents="${repo_path}/AGENTS.md"
+
+    if [[ ! -f "${source_agents}" ]]; then
+        log "ERROR" "Master AGENTS.md not found at: ${source_agents}"
+        return 50
+    fi
+
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        log "SIM" "[DRY-RUN] WOULD copy '${source_agents}' -> '${dest_agents}' (overwrite enabled)."
+        return 0
+    fi
+
+    if cp -f "${source_agents}" "${dest_agents}"; then
+        log "OK" "AGENTS.md copied to repo: ${dest_agents} (overwrite forced)."
+        return 0
+    fi
+
+    log "ERROR" "Failed to copy AGENTS.md to repo: ${dest_agents}"
+    return 51
+}
+
 # ==============================================================================
 # SECTION 16 – SINGLE SCAN & PROCESS PASS
 # One complete scan + process cycle. Called once, or in a loop if --recurrent.
@@ -1271,6 +1323,7 @@ run_one_pass() {
     log "INFO" "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
     log "INFO" "  Simulate   : ${SIMULATE}"
     log "INFO" "  Exclude    : ${EXCLUDE_LIST:-(none)}"
+    log "INFO" "  cpagentsmd : ${CP_AGENTS_MD}"
     if [[ "${SIMULATE}" -eq 1 ]]; then
         log "SIM" "╔══════════════════════════════════════════════════╗"
         log "SIM" "║   SIMULATION MODE ACTIVE – no real changes      ║"
@@ -1364,6 +1417,19 @@ run_one_pass() {
             continue
         fi
         log "INFO" "  Working dir: $(pwd)"
+
+        # Optional pre-operation: copy master AGENTS.md into repo (forced overwrite)
+        if [[ "${CP_AGENTS_MD}" -eq 1 ]]; then
+            local cpagents_exit=0
+            copy_master_agentsmd_to_repo "${repo_path}" || cpagents_exit=$?
+            if [[ "${cpagents_exit}" -ne 0 ]]; then
+                log "ERROR" "  --cpagentsmd failed (exit ${cpagents_exit}) – skipping repo."
+                REPOS_FAILED=$((REPOS_FAILED + 1))
+                log_action "FAILED (--cpagentsmd exit ${cpagents_exit}): ${repo_path}"
+                popd > /dev/null 2>&1
+                continue
+            fi
+        fi
 
         # Reset per-repo state flags
         REPO_SYNC_WARNING=""
@@ -1524,6 +1590,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --forcepush|-f)
             FORCE_PUSH=1
+            shift
+            ;;
+        --cpagentsmd)
+            CP_AGENTS_MD=1
             shift
             ;;
         --root_dir)
