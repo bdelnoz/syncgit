@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.2.1
-Date : 2026-03-28 00:35
+Version : v3.2.2
+Date : 2026-03-28 00:56
 -->
 # AGENTS.md
 
@@ -87,6 +87,14 @@ Date : 2026-03-28 00:35
 - Avoid abstract explanations when the user asked for an operational result.
 - Do not ask for confirmation when the user clearly requested an immediate modification or generation.
 - Execute the requested work directly unless a real ambiguity blocks correctness.
+
+### Non-destructive update guards (mandatory)
+
+- For existing files, update in-place and preserve prior content unless explicit removal is requested by the user.
+- Full file rewrites of existing files are forbidden unless the user explicitly asks for a complete rewrite.
+- For `CHANGELOG.md`, updates are append-only: do not delete, compress, summarize, or rewrite existing historical entries.
+- Any change that removes existing `CHANGELOG.md` lines is forbidden unless explicitly requested by the user.
+- Before commit, run a focused diff check on `CHANGELOG.md`; if removed lines are detected, stop and fix before continuing.
 
 ## Secrets and sensitive material
 
