@@ -2,7 +2,7 @@
 Document : INSTALL.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.0.0
+Version : v1.0.1
 Date : 2026-03-28 02:30
 -->
 # Installation
@@ -26,4 +26,9 @@ Date : 2026-03-28 02:30
 ## First execution
 ```bash
 ./syncgit.sh --exec --root_dir .
+```
+
+## Copy-only mode
+```bash
+./syncgit.sh --cpagentsmdonly --root_dir /path/to/root
 ```

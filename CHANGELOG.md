@@ -2,12 +2,23 @@
 Document : CHANGELOG.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.7
+Version : v1.3.8
 Date : 2026-03-28 02:30
 -->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.3.8 – 2026-03-28 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: new action `--cpagentsmdonly` to perform only AGENTS.md propagation
+  to every detected repository.
+- **UPDATED**: copy-only mode explicitly performs no branch checks and no
+  git sync/custom command operations.
 
 ---
 
