@@ -14,10 +14,19 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.6
-# DATE         : 2026-03-27
+# VERSION      : v1.3.8
+# DATE         : 2026-03-28
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.8 – 2026-03-28 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --cpagentsmdonly action to copy AGENTS.md to each detected
+#                repository and perform no other repository operation.
+#   v1.3.7 – 2026-03-28 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --cpagentsmd option to copy ${SCRIPT_DIR}/AGENTS.md
+#                into every detected repository before any other repo operation
+#                (forced overwrite when destination file already exists).
 #   v1.3.6 – 2026-03-27 – Bruno DELNOZ
 #       Changed:
 #       - ADDED: --forcepush / -f option to override the remote-ahead guard.
@@ -103,8 +112,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.6"
-SCRIPT_DATE="2026-03-27"
+SCRIPT_VERSION="v1.3.8"
+SCRIPT_DATE="2026-03-28"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -139,6 +148,8 @@ EXCLUDE_LIST=""             # Semicolon-separated list of repo names to skip (--
 ACTION_MODE=""              # Which primary action was requested
 PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also passed
 FORCE_PUSH=0                # 1 = bypass remote-ahead guard and force push anyway
+CP_AGENTS_MD=0              # 1 = copy SCRIPT_DIR/AGENTS.md into each detected repo
+CP_AGENTS_MD_ONLY=0         # 1 = run copy-only mode (no other repo operation)
 
 # --- Runtime state (computed at startup via init_run_context) ---
 RUN_TS=""                   # Timestamp string generated at run start
@@ -372,6 +383,7 @@ ACTIONS (one required):
   --prerequis,  -pr    Check prerequisites and display their status.
   --install,    -i     Install / configure missing prerequisites.
   --changelog,  -ch    Display the full embedded changelog.
+  --cpagentsmdonly     Copy AGENTS.md to every detected repo and do nothing else.
   --purge,      -pu    Delete ./logs and ./results (requires --yes).
   --help,       -h     Display this help message.
 
@@ -403,6 +415,17 @@ OPTIONS (for use with --exec):
                            If origin/<branch> is ahead of local, pushes are
                            still executed when this flag is enabled.
                            Default : off (safe mode on)
+
+  --cpagentsmd             Copy ${SCRIPT_DIR}/AGENTS.md into each detected
+                           repository BEFORE any repo operation.
+                           Destination: <repo>/AGENTS.md
+                           Behavior : forced overwrite if file already exists.
+                           Default  : off
+
+  --cpagentsmdonly         Copy-only action mode:
+                           scans repos and copies ${SCRIPT_DIR}/AGENTS.md
+                           to <repo>/AGENTS.md with forced overwrite.
+                           No branch checks, no git add/commit/push, no --cmd.
 
   --simulate, -s           Dry-run mode: logs all actions, makes no changes.
                            Presence of this flag alone activates simulation.
@@ -464,6 +487,12 @@ EXAMPLES:
   # Force push even if remote branch is ahead (bypass protection):
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --forcepush
 
+  # Copy master AGENTS.md into each repo before processing:
+  ./${SCRIPT_NAME} --exec --root_dir /mnt/data/Security --cpagentsmd
+
+  # Copy AGENTS.md only (no other repo operations):
+  ./${SCRIPT_NAME} --cpagentsmdonly --root_dir /mnt/data/Security
+
   # Repeat every 10 minutes automatically:
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data --recurrent 600
 
@@ -494,6 +523,16 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.8 – 2026-03-28 – Bruno DELNOZ
+  - ADDED: --cpagentsmdonly action mode.
+           It only copies ${SCRIPT_DIR}/AGENTS.md into every detected repo
+           and runs no other repository operation.
+
+## v1.3.7 – 2026-03-28 – Bruno DELNOZ
+  - ADDED: --cpagentsmd to copy ${SCRIPT_DIR}/AGENTS.md into each detected
+           repository before any other repo operation.
+           Destination AGENTS.md is always overwritten.
 
 ## v1.3.6 – 2026-03-27 – Bruno DELNOZ
   - ADDED: --forcepush / -f to bypass remote-ahead protection.
@@ -1208,6 +1247,47 @@ run_default_git_sync() {
     return 0
 }
 
+# ------------------------------------------------------------------------------
+# Function : copy_master_agentsmd_to_repo
+# Purpose  : Copy SCRIPT_DIR/AGENTS.md to <repo>/AGENTS.md before any other
+#            repository operation when --cpagentsmd is enabled.
+#            Destination is always overwritten (cp -f behavior).
+# Args     : $1 = repo path
+# Returns  : 0 on success, non-zero on failure
+# ------------------------------------------------------------------------------
+copy_master_agentsmd_to_repo() {
+    local repo_path="$1"
+    local source_agents="${SCRIPT_DIR}/AGENTS.md"
+    local dest_agents="${repo_path}/AGENTS.md"
+
+    if [[ ! -f "${source_agents}" ]]; then
+        log "ERROR" "Master AGENTS.md not found at: ${source_agents}"
+        return 50
+    fi
+
+    if [[ "${SIMULATE}" -eq 1 ]]; then
+        log "SIM" "[DRY-RUN] WOULD copy '${source_agents}' -> '${dest_agents}' (overwrite enabled)."
+        return 0
+    fi
+
+    local src_real=""
+    local dst_real=""
+    src_real="$(realpath "${source_agents}" 2>/dev/null || true)"
+    dst_real="$(realpath "${dest_agents}" 2>/dev/null || true)"
+    if [[ -n "${src_real}" && -n "${dst_real}" && "${src_real}" == "${dst_real}" ]]; then
+        log "INFO" "AGENTS.md source and destination are identical (${dest_agents}) – skipping copy as already synchronized."
+        return 0
+    fi
+
+    if cp -f "${source_agents}" "${dest_agents}"; then
+        log "OK" "AGENTS.md copied to repo: ${dest_agents} (overwrite forced)."
+        return 0
+    fi
+
+    log "ERROR" "Failed to copy AGENTS.md to repo: ${dest_agents}"
+    return 51
+}
+
 # ==============================================================================
 # SECTION 16 – SINGLE SCAN & PROCESS PASS
 # One complete scan + process cycle. Called once, or in a loop if --recurrent.
@@ -1271,6 +1351,7 @@ run_one_pass() {
     log "INFO" "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
     log "INFO" "  Simulate   : ${SIMULATE}"
     log "INFO" "  Exclude    : ${EXCLUDE_LIST:-(none)}"
+    log "INFO" "  cpagentsmd : ${CP_AGENTS_MD}"
     if [[ "${SIMULATE}" -eq 1 ]]; then
         log "SIM" "╔══════════════════════════════════════════════════╗"
         log "SIM" "║   SIMULATION MODE ACTIVE – no real changes      ║"
@@ -1364,6 +1445,19 @@ run_one_pass() {
             continue
         fi
         log "INFO" "  Working dir: $(pwd)"
+
+        # Optional pre-operation: copy master AGENTS.md into repo (forced overwrite)
+        if [[ "${CP_AGENTS_MD}" -eq 1 ]]; then
+            local cpagents_exit=0
+            copy_master_agentsmd_to_repo "${repo_path}" || cpagents_exit=$?
+            if [[ "${cpagents_exit}" -ne 0 ]]; then
+                log "ERROR" "  --cpagentsmd failed (exit ${cpagents_exit}) – skipping repo."
+                REPOS_FAILED=$((REPOS_FAILED + 1))
+                log_action "FAILED (--cpagentsmd exit ${cpagents_exit}): ${repo_path}"
+                popd > /dev/null 2>&1
+                continue
+            fi
+        fi
 
         # Reset per-repo state flags
         REPO_SYNC_WARNING=""
@@ -1474,6 +1568,80 @@ run_exec() {
     fi
 }
 
+# ------------------------------------------------------------------------------
+# Function : run_cpagentsmdonly
+# Purpose  : Scan repositories and copy only AGENTS.md to each detected repo.
+#            No checkout/add/commit/push/custom command is executed.
+# ------------------------------------------------------------------------------
+run_cpagentsmdonly() {
+    local previous_custom_cmd="${CUSTOM_CMD}"
+    CUSTOM_CMD=""
+
+    setup_directories
+    init_run_context
+    sep
+    log "INFO" "Starting copy-only pass – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
+    log "INFO" "  Root dir        : ${ROOT_DIR}"
+    log "INFO" "  Mode            : --cpagentsmdonly"
+    log "INFO" "  Master AGENTS   : ${SCRIPT_DIR}/AGENTS.md"
+    log "INFO" "  Simulate        : ${SIMULATE}"
+    sep
+
+    [[ -d "${ROOT_DIR}" ]] || die "Root directory does not exist: '${ROOT_DIR}'"
+    [[ -r "${ROOT_DIR}" ]] || die "Root directory not readable: '${ROOT_DIR}'"
+
+    declare -a repo_paths=()
+    while IFS= read -r gitdir; do
+        repo_paths+=("${gitdir%/.git}")
+    done < <(find "${ROOT_DIR}" -type d -name ".git" -not -path "*/.git/*" 2>/dev/null)
+
+    TOTAL_REPOS="${#repo_paths[@]}"
+    REPOS_SYNCED=0
+    REPOS_SKIPPED=0
+    REPOS_FAILED=0
+    ACTIONS_DONE=()
+
+    log "INFO" "Copy-only scan complete. Found: ${TOTAL_REPOS} git repository(ies)."
+    log_action "Scanned '${ROOT_DIR}' – found ${TOTAL_REPOS} repos"
+
+    if [[ "${TOTAL_REPOS}" -eq 0 ]]; then
+        log "WARN" "No git repositories found under: ${ROOT_DIR}"
+        write_result_file
+        display_post_exec_summary
+        CUSTOM_CMD="${previous_custom_cmd}"
+        return 0
+    fi
+
+    local repo_idx=0
+    local repo_path=""
+    for repo_path in "${repo_paths[@]}"; do
+        repo_idx=$((repo_idx + 1))
+        log "INFO" "Copy-only repo ${repo_idx}/${TOTAL_REPOS}: ${repo_path}"
+
+        if is_excluded "${repo_path}"; then
+            log "INFO" "  EXCLUDED (--exclude list): ${repo_path}"
+            log_action "EXCLUDED: ${repo_path}"
+            REPOS_SKIPPED=$((REPOS_SKIPPED + 1))
+            continue
+        fi
+
+        local copy_exit=0
+        copy_master_agentsmd_to_repo "${repo_path}" || copy_exit=$?
+        if [[ "${copy_exit}" -eq 0 ]]; then
+            REPOS_SYNCED=$((REPOS_SYNCED + 1))
+            log_action "SYNCED: ${repo_path}"
+        else
+            REPOS_FAILED=$((REPOS_FAILED + 1))
+            log_action "FAILED (--cpagentsmdonly exit ${copy_exit}): ${repo_path}"
+        fi
+    done
+
+    write_result_file
+    display_post_exec_summary
+
+    CUSTOM_CMD="${previous_custom_cmd}"
+}
+
 # ==============================================================================
 # SECTION 18 – ARGUMENT PARSING
 # ==============================================================================
@@ -1493,7 +1661,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --simulate|-s)
-            ACTION_MODE="exec"
+            if [[ "${ACTION_MODE}" != "cpagentsmdonly" ]]; then
+                ACTION_MODE="exec"
+            fi
             SIMULATE=1
             shift
             ;;
@@ -1507,6 +1677,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --changelog|-ch)
             ACTION_MODE="changelog"
+            shift
+            ;;
+        --cpagentsmdonly)
+            ACTION_MODE="cpagentsmdonly"
+            CP_AGENTS_MD_ONLY=1
+            CP_AGENTS_MD=1
             shift
             ;;
         --purge|-pu)
@@ -1524,6 +1700,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --forcepush|-f)
             FORCE_PUSH=1
+            shift
+            ;;
+        --cpagentsmd)
+            CP_AGENTS_MD=1
             shift
             ;;
         --root_dir)
@@ -1589,6 +1769,9 @@ case "${ACTION_MODE}" in
         setup_directories
         run_exec
         ;;
+    cpagentsmdonly)
+        run_cpagentsmdonly
+        ;;
     prerequis)
         setup_directories
         check_prerequisites
@@ -1604,7 +1787,7 @@ case "${ACTION_MODE}" in
         purge_directories
         ;;
     "")
-        die "No action specified. Use --exec, --prerequis, --install, --changelog, or --purge."
+        die "No action specified. Use --exec, --cpagentsmdonly, --prerequis, --install, --changelog, or --purge."
         ;;
     *)
         die "Unknown action mode: '${ACTION_MODE}'"
