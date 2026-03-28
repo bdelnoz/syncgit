@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.2.3
-Date : 2026-03-28 01:10
+Version : v3.3.0
+Date : 2026-03-28 01:35
 -->
 # AGENTS.md
 
@@ -114,6 +114,17 @@ Date : 2026-03-28 01:10
 - If a script is modified, do not stop after editing only the script when related repository documentation is missing, outdated, or incomplete.
 - When a script changes, repository deliverables must remain synchronized with the script in the same task.
 
+### Mandatory version bump and release metadata updates
+
+- Any modification to an existing script file MUST trigger a version bump in the same task.
+- Do not leave the script version unchanged after a real script modification.
+- The script internal version, internal date, and internal changelog entry MUST be updated together in the same task.
+- If the repository contains companion documentation tied to the script version, that documentation MUST also be synchronized in the same task.
+- A script-related task is NOT complete until the version bump has been applied wherever required by this `AGENTS.md`.
+- If the user explicitly requests no version bump, follow the user request; otherwise, version bumping is mandatory.
+- If a script change is only cosmetic and the user explicitly forbids version changes, state that constraint clearly; otherwise, do not skip the version bump.
+- Never silently keep the previous version number after modifying script logic, options, behavior, metadata, or documentation tied to that script.
+
 ## Secrets and sensitive material
 
 - Never place secrets, passwords, certificates, tokens, or similar sensitive values directly in versioned code.
@@ -153,6 +164,14 @@ Use the following values unless the user explicitly overrides them:
 - Increment the version every time a script is produced again.
 - The changelog must be updated every time.
 - Do not add changelog entries that merely say new scripting rules were applied.
+
+### Version bump execution rules
+
+- Version bumping is mandatory for every script modification unless the user explicitly forbids it.
+- Updating the script content without updating its version metadata is forbidden.
+- Updating the script version without updating the script date and changelog is forbidden.
+- If a script is modified, the agent MUST update the version, date, and changelog before considering the task finished.
+- Treat version bumping as part of the required implementation, not as an optional follow-up step.
 
 ### Changelog rules
 
@@ -259,6 +278,9 @@ For script projects, on first creation generate without asking:
 
 ### Update behavior
 
+- Documentation maintenance is mandatory on script-related tasks, not optional.
+- For any script modification, check `./README.md`, `./CHANGELOG.md`, `./INSTALL.md`, and `./WHY.md` in the same task and update them when applicable.
+- Do not stop after updating only the script when companion documentation is missing, stale, incomplete, or inconsistent with the script.
 - If one of the mandatory documentation files does not exist, create it automatically.
 - Never delete or compress existing documentation files.
 - If sections are missing, complete them automatically.
