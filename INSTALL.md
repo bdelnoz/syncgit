@@ -2,8 +2,8 @@
 Document : INSTALL.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.0.1
-Date : 2026-03-28 02:30
+Version : v1.3.9
+Date : 2026-03-28 06:10
 -->
 # Installation
 
@@ -27,6 +27,10 @@ Date : 2026-03-28 02:30
 ```bash
 ./syncgit.sh --exec --root_dir .
 ```
+
+## Remote branch note
+- From v1.3.9, the remote-ahead guard does not fail when `origin/<branch>` is
+  absent on a repository remote (for example remote default branch `master`).
 
 ## Copy-only mode
 ```bash

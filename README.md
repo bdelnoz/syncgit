@@ -2,10 +2,10 @@
 Document : README.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.8
-Date : 2026-03-28 02:30
+Version : v1.3.9
+Date : 2026-03-28 06:10
 -->
-> **Version** : v1.3.8
+> **Version** : v1.3.9
 > **Date**    : 2026-03-28
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
@@ -22,7 +22,8 @@ Pour chaque dépôt trouvé, le script exécute soit :
    git checkout <branch>                                        # [b/6]
    git add .                                                    # [c/6]
    git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"  # [d/6] sauté si rien à committer
-   [guard] si `origin/<branch>` est ahead, skip push et FAIL (sauf `--forcepush`)  # pré-check
+   git fetch origin --prune                                      # pré-check remote refs
+   [guard] si `origin/<branch>` existe et est ahead, skip push et FAIL (sauf `--forcepush`)
    git push --set-upstream --force origin <branch>             # [e/6]
    git push --force origin --all                               # [f/6]
    ```
@@ -149,6 +150,7 @@ syncgit.sh --purge --yes
 - Dans le résumé final, seules les actions repo (`SYNCED`/`FAILED`/`EXCLUDED`) sont numérotées ;
   les actions globales (préparation/racine/scan) restent affichées sans numéro
 - Le garde-fou `remote ahead` est actif par défaut ; `--forcepush` (`-f`) permet de l’ignorer
+- Si `origin/<branch>` n'existe pas, le garde-fou `remote ahead` est ignoré (pas de blocage sur `git fetch origin <branch>`)
 - `--cpagentsmd` copie `${SCRIPT_DIR}/AGENTS.md` vers `<repo>/AGENTS.md` avant toute autre opération repo (overwrite forcé)
 - `--cpagentsmdonly` ne fait que la copie AGENTS.md (pas de checkout/add/commit/push/cmd)
 

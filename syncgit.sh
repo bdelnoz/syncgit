@@ -14,10 +14,16 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.8
+# VERSION      : v1.3.9
 # DATE         : 2026-03-28
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.3.9 – 2026-03-28 – Bruno DELNOZ
+#       Changed:
+#       - FIXED: remote-ahead guard no longer fails when the remote branch
+#                does not exist (example: remote default branch is master).
+#                Guard now fetches origin refs and runs ahead/behind check
+#                only when origin/<branch> exists.
 #   v1.3.8 – 2026-03-28 – Bruno DELNOZ
 #       Changed:
 #       - ADDED: --cpagentsmdonly action to copy AGENTS.md to each detected
@@ -112,7 +118,7 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.8"
+SCRIPT_VERSION="v1.3.9"
 SCRIPT_DATE="2026-03-28"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
@@ -523,6 +529,12 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.3.9 – 2026-03-28 – Bruno DELNOZ
+  - FIXED: remote-ahead guard no longer fails when origin/<branch> does
+           not exist on remote (example: remote default branch is master).
+  - UPDATED: guard now uses "git fetch origin --prune" and only checks
+           ahead/behind if refs/remotes/origin/<branch> exists.
 
 ## v1.3.8 – 2026-03-28 – Bruno DELNOZ
   - ADDED: --cpagentsmdonly action mode.
@@ -1176,17 +1188,17 @@ run_default_git_sync() {
     # Default rule: if origin/<branch> has commits not present locally,
     # do not push (force or --all) and report FAILED in final summary.
     # Override: when --forcepush/-f is enabled, this protection is bypassed.
+    # If origin/<branch> does not exist on remote, guard is skipped.
     if [[ "${SIMULATE}" -eq 0 ]]; then
         local fetch_exit=0
         run_cmd \
-            "git fetch origin ${BRANCH} (remote-ahead guard)" \
-            "git fetch origin ${BRANCH}" || fetch_exit=$?
+            "git fetch origin --prune (remote-ahead guard)" \
+            "git fetch origin --prune" || fetch_exit=$?
         if [[ "${fetch_exit}" -ne 0 ]]; then
-            log "ERROR" "  fetch origin ${BRANCH} failed (exit ${fetch_exit})"
-            return "${fetch_exit}"
+            log "WARN" "  fetch origin --prune failed (exit ${fetch_exit}) – remote-ahead guard skipped."
         fi
 
-        if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}" 2>/dev/null; then
+        if [[ "${fetch_exit}" -eq 0 ]] && git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}" 2>/dev/null; then
             local ahead_behind
             local local_ahead=0
             local remote_ahead=0
@@ -1204,6 +1216,8 @@ run_default_git_sync() {
                     return 40
                 fi
             fi
+        elif [[ "${fetch_exit}" -eq 0 ]]; then
+            log "WARN" "  Remote branch origin/${BRANCH} not found – remote-ahead guard skipped."
         fi
     fi
 
