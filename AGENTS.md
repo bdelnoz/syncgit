@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.2.2
-Date : 2026-03-28 00:56
+Version : v3.2.3
+Date : 2026-03-28 01:10
 -->
 # AGENTS.md
 
@@ -95,6 +95,24 @@ Date : 2026-03-28 00:56
 - For `CHANGELOG.md`, updates are append-only: do not delete, compress, summarize, or rewrite existing historical entries.
 - Any change that removes existing `CHANGELOG.md` lines is forbidden unless explicitly requested by the user.
 - Before commit, run a focused diff check on `CHANGELOG.md`; if removed lines are detected, stop and fix before continuing.
+
+### Mandatory companion updates for script-related tasks
+
+- Any modification to a script file automatically requires companion updates in the same task.
+- Unless the user explicitly forbids it, every script-related change MUST also update, create, or complete as needed:
+  - the script internal version
+  - the script internal date
+  - the script internal changelog
+  - `./README.md`
+  - `./CHANGELOG.md`
+  - `./INSTALL.md`
+  - `./WHY.md`
+- A script-related task is NOT complete until these companion files have been checked and updated when applicable.
+- Do not treat documentation updates as optional when a script changes.
+- If a related mandatory documentation file does not exist, create it automatically.
+- If a related mandatory documentation file already exists, update it in place.
+- If a script is modified, do not stop after editing only the script when related repository documentation is missing, outdated, or incomplete.
+- When a script changes, repository deliverables must remain synchronized with the script in the same task.
 
 ## Secrets and sensitive material
 
