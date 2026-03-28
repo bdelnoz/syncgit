@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.2.0
-Date : 2026-03-28 00:20
+Version : v3.2.1
+Date : 2026-03-28 00:35
 -->
 # AGENTS.md
 
@@ -51,16 +51,18 @@ Date : 2026-03-28 00:20
 
 ## Language and communication rules
 
-- The default and mandatory language for all user-facing communication is French.
-- Any AI agent working in this repository MUST reply to the user in French.
-- Do not switch to another language unless the user explicitly requests it.
+- Interactive chat exchanges with the user MUST be written in French by default.
+- Any AI agent working in this repository MUST reply to the user in French in direct chat interactions, unless the user explicitly requests another language for the conversation.
+- All repository deliverables and artifacts MUST be written in English by default.
+- This includes, but is not limited to: source code deliverables, Markdown files, documentation files, README files, CHANGELOG files, INSTALL files, WHY files, comments intended for repository maintainers, commit messages, pull request titles, and pull request descriptions.
+- Do not apply chat-language rules to repository files or repository deliverables.
+- Only switch repository deliverables or artifacts to French if the user explicitly requests French for those deliverables.
 - Technical terms, code, commands, logs, error messages, protocol names, API names, commit labels, and standard engineering vocabulary may remain in English when appropriate.
-- Explanations, operational guidance, summaries, and direct answers addressed to the user MUST be written in French.
 
 ## General execution behavior
 
 - Follow the user request directly.
-- Always communicate with the user in French unless the user explicitly requests another language.
+- Always communicate with the user in French in direct chat interactions unless the user explicitly requests another language.
 - For script work, provide the **full complete script** immediately, even for a tiny modification.
 - Do not provide partial patches instead of the full script when the request is about script generation or script correction.
 - Do not simplify existing scripts.
