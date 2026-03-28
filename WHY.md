@@ -2,8 +2,8 @@
 Document : WHY.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.0.1
-Date : 2026-03-28 02:30
+Version : v1.3.9
+Date : 2026-03-28 06:10
 -->
 # Why this project exists
 
@@ -13,6 +13,7 @@ Date : 2026-03-28 02:30
 - simulation mode (`--simulate`)
 - detailed logs and result summaries
 - safety guards around branch and push logic
+- robust remote-ahead behavior when `origin/<branch>` does not exist remotely
 - optional `--cpagentsmd` propagation to keep a single master `AGENTS.md` policy
   synchronized across all discovered repositories
 

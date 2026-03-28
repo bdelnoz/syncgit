@@ -2,12 +2,25 @@
 Document : CHANGELOG.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.8
-Date : 2026-03-28 02:30
+Version : v1.3.9
+Date : 2026-03-28 06:10
 -->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.3.9 – 2026-03-28 06:10 – Bruno DELNOZ
+
+Changed.
+
+- **FIXED**: remote-ahead guard no longer aborts on repositories where
+  `origin/<branch>` does not exist (for example, remote branch is `master`).
+- **UPDATED**: guard now runs `git fetch origin --prune` and applies
+  ahead/behind protection only when `origin/<branch>` is available.
+- **UPDATED**: when origin fetch fails or `origin/<branch>` is missing,
+  execution continues and logs a warning instead of failing at guard step.
 
 ---
 
