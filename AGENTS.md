@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.0.0
-Date : 2026-03-20 23:00
+Version : v3.2.0
+Date : 2026-03-28 00:20
 -->
 # AGENTS.md
 
@@ -36,6 +36,8 @@ Date : 2026-03-20 23:00
   - one coherent task per branch
   - one fresh branch per merged PR
 
+- Before proposing any git command that modifies history or state, explicitly prefer the safest non-destructive path unless the user requested a destructive action.
+
 ## Active instruction set
 
 - This `AGENTS.md` file is the only active instruction source for this repository.
@@ -47,9 +49,18 @@ Date : 2026-03-20 23:00
 - Apply these repository rules as written.
 - Do not request, require, or depend on any external rule file when this `AGENTS.md` is present.
 
+## Language and communication rules
+
+- The default and mandatory language for all user-facing communication is French.
+- Any AI agent working in this repository MUST reply to the user in French.
+- Do not switch to another language unless the user explicitly requests it.
+- Technical terms, code, commands, logs, error messages, protocol names, API names, commit labels, and standard engineering vocabulary may remain in English when appropriate.
+- Explanations, operational guidance, summaries, and direct answers addressed to the user MUST be written in French.
+
 ## General execution behavior
 
 - Follow the user request directly.
+- Always communicate with the user in French unless the user explicitly requests another language.
 - For script work, provide the **full complete script** immediately, even for a tiny modification.
 - Do not provide partial patches instead of the full script when the request is about script generation or script correction.
 - Do not simplify existing scripts.
@@ -58,6 +69,22 @@ Date : 2026-03-20 23:00
 - Do not reduce the number of lines compared with the previous version of a script.
 - If the requested modification explicitly asks to simplify, remove, or condense existing content, ask for confirmation before producing that reduced version.
 - When possible, provide generated content as downloadable files first; after that, ask whether the user also wants the content displayed in a Markdown box.
+- When the user asks to modify a file, provide the full complete updated file, not only a partial diff or isolated patch, unless the user explicitly asks for a diff.
+- Do not leave placeholders such as TODO, FIXME, <value_here>, or "adapt as needed" in deliverables unless the user explicitly requests a template.
+- Prefer ready-to-use outputs over partially prepared outputs.
+- Never remove existing comments, metadata, changelog entries, options, safety checks, or documentation sections unless the user explicitly requests their removal.
+- Do not rename existing files, functions, variables, directories, services, or commands unless the user explicitly requests it.
+- Do not invent tests, executions, validations, results, metrics, dates, environments, or completed actions that did not actually occur.
+- If something was not executed or verified, state it explicitly.
+- Clearly distinguish between:
+  - what is already done
+  - what is proposed
+  - what still requires execution or validation
+- Do not silently reformat, reorder, reorganize, or normalize existing content unless the user explicitly requests such restructuring.
+- Prefer outputs that are directly usable, copy-paste ready, and execution-ready.
+- Avoid abstract explanations when the user asked for an operational result.
+- Do not ask for confirmation when the user clearly requested an immediate modification or generation.
+- Execute the requested work directly unless a real ambiguity blocks correctness.
 
 ## Secrets and sensitive material
 
@@ -65,12 +92,6 @@ Date : 2026-03-20 23:00
 - If a script needs secrets, use a local file at `./.secrets`.
 - Ensure `./.secrets` is covered by `.gitignore`.
 - Do not push secret material to git.
-
-## Shell compatibility rules
-
-- All `.sh` scripts must remain compatible with `sh`, `bash`, and `ksh` as far as possible.
-- Use a retrocompatible shebang for shell scripts.
-- Prefer portable shell syntax and avoid unnecessary shell-specific features.
 
 ## Script authoring rules
 
@@ -145,8 +166,10 @@ Include these options whenever applicable and keep their behavior aligned with t
 
 ### Simulate mode
 
+- `--simulate` is a CLI option.
 - `--simulate` is inactive by default.
 - The presence of `--simulate` alone activates dry-run mode.
+- It must be callable directly, for example: `script.sh --simulate`.
 - Do not require `true` or `false` values for `--simulate`.
 - In simulate mode, reading, analysis, and logging remain active.
 - Sensitive actions and system modifications must not execute for real while `--simulate` is present.
@@ -187,9 +210,9 @@ Include these options whenever applicable and keep their behavior aligned with t
 ## Sudo and ready-to-use behavior
 
 - Prefer scripts that are ready to use immediately.
-- Put `sudo` inside the script when possible.
-- Avoid requiring the user to run `sudo ./script.sh` when internal elevation can be handled cleanly.
-- Prefer zero external sudo when possible.
+- Always put `sudo` inside the script.
+- Do not require the user to run `sudo ./script.sh`.
+- Prefer zero external sudo.
 
 ## Documentation generation rules
 
@@ -198,15 +221,9 @@ Include these options whenever applicable and keep their behavior aligned with t
 For script projects, on first creation generate without asking:
 
 - `./README.md`
-- `./infos/README.md`
 - `./CHANGELOG.md`
-- `./infos/CHANGELOG.md`
-
-Ask before generating:
-
-- `./infos/USAGE.md`
-- `./infos/INSTALL.md` (only if install instructions or dependencies are needed)
-- `./infos/WHY.md`
+- `./INSTALL.md`
+- `./WHY.md`
 
 ### Major version updates
 
@@ -225,7 +242,7 @@ Ask before generating:
 
 ### CHANGELOG.md content
 
-- `CHANGELOG.md` must exist both in `./` and `./infos/`.
+- `CHANGELOG.md` must exist in `./`.
 - It must contain the version number, exact date and time, author name, and the full list of changes with a short description for each point.
 - Keep the complete history of all versions.
 - Never remove older versions.
@@ -263,44 +280,7 @@ Date : YYYY-MM-DD HH:MM
 
 - A standalone `.txt` document must start with a metadata block.
 - The metadata must contain at minimum: document name or title, author, email, version, date and time.
-- Use the following exact repository delimited metadata format:
-
-```txt
------ SOLO DOCUMENT METADATA BEGIN -----
-Document : <Full document name>
-Auteur : Bruno DELNOZ
-Email : bruno.delnoz@protonmail.com
-Version : vX.X.X
-Date : YYYY-MM-DD HH:MM
------ SOLO DOCUMENT METADATA END -----
-
-<file content>
-```
-
 - No changelog is required in a standalone `.txt` document.
-
-### DOCX documents
-
-- A standalone `.docx` document must not contain a technical raw-text header block.
-- Its first page or cover page must contain only:
-  - document title or name
-  - author
-  - email
-  - version
-  - date and time
-- No changelog is required in a standalone `.docx` document.
-
-### PDF documents
-
-- A standalone `.pdf` document follows the same logic as `.docx`.
-- Its cover page must visibly contain:
-  - document title or name
-  - author
-  - email
-  - version
-  - date and time
-- Do not place a script-style technical header block inside the PDF content.
-- No changelog is required in a standalone `.pdf` document.
 
 ## Repository expectations for Codex and Claude Code
 
