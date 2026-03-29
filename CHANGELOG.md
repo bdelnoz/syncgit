@@ -2,12 +2,24 @@
 Document : CHANGELOG.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.9
-Date : 2026-03-28 06:10
+Version : v1.4.0
+Date : 2026-03-29 10:15
 -->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.4.0 – 2026-03-29 10:15 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: new action `--listpubpriv` to list only GitHub repositories with
+  visibility `PRIVATE` or `PUBLIC`.
+- **ADDED**: ordering by visibility criteria (`PRIVATE` first, then `PUBLIC`),
+  then by repository path.
+- **UPDATED**: help, examples, and action dispatcher to include `--listpubpriv`.
 
 ---
 

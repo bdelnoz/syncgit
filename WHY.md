@@ -2,8 +2,8 @@
 Document : WHY.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.9
-Date : 2026-03-28 06:10
+Version : v1.4.0
+Date : 2026-03-29 10:15
 -->
 # Why this project exists
 
@@ -18,3 +18,5 @@ Date : 2026-03-28 06:10
   synchronized across all discovered repositories
 
 - dedicated `--cpagentsmdonly` mode for AGENTS propagation without any other repo action
+- dedicated `--listpubpriv` mode to list only GitHub `PRIVATE`/`PUBLIC` repositories
+  sorted by visibility criteria

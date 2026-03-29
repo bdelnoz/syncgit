@@ -14,10 +14,15 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.3.9
-# DATE         : 2026-03-28
+# VERSION      : v1.4.0
+# DATE         : 2026-03-29
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.4.0 – 2026-03-29 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --listpubpriv action to only list repositories that are
+#                PUBLIC or PRIVATE on GitHub, ordered by visibility criteria
+#                then by repository path.
 #   v1.3.9 – 2026-03-28 – Bruno DELNOZ
 #       Changed:
 #       - FIXED: remote-ahead guard no longer fails when the remote branch
@@ -118,8 +123,8 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.3.9"
-SCRIPT_DATE="2026-03-28"
+SCRIPT_VERSION="v1.4.0"
+SCRIPT_DATE="2026-03-29"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
 
@@ -389,6 +394,8 @@ ACTIONS (one required):
   --prerequis,  -pr    Check prerequisites and display their status.
   --install,    -i     Install / configure missing prerequisites.
   --changelog,  -ch    Display the full embedded changelog.
+  --listpubpriv       List only PUBLIC/PRIVATE repositories and sort by
+                      visibility criteria.
   --cpagentsmdonly     Copy AGENTS.md to every detected repo and do nothing else.
   --purge,      -pu    Delete ./logs and ./results (requires --yes).
   --help,       -h     Display this help message.
@@ -432,6 +439,11 @@ OPTIONS (for use with --exec):
                            scans repos and copies ${SCRIPT_DIR}/AGENTS.md
                            to <repo>/AGENTS.md with forced overwrite.
                            No branch checks, no git add/commit/push, no --cmd.
+
+  --listpubpriv            Scan repositories and list only those with GitHub
+                           visibility PUBLIC or PRIVATE.
+                           Ordering: PRIVATE first, then PUBLIC, then path.
+                           Requires: gh authenticated (gh auth status).
 
   --simulate, -s           Dry-run mode: logs all actions, makes no changes.
                            Presence of this flag alone activates simulation.
@@ -499,6 +511,9 @@ EXAMPLES:
   # Copy AGENTS.md only (no other repo operations):
   ./${SCRIPT_NAME} --cpagentsmdonly --root_dir /mnt/data/Security
 
+  # List only PRIVATE/PUBLIC repositories sorted by visibility:
+  ./${SCRIPT_NAME} --listpubpriv --root_dir /mnt/data/Security
+
   # Repeat every 10 minutes automatically:
   ./${SCRIPT_NAME} --exec --root_dir /mnt/data --recurrent 600
 
@@ -529,6 +544,13 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.4.0 – 2026-03-29 – Bruno DELNOZ
+  - ADDED: new action --listpubpriv.
+           It scans repositories under --root_dir and lists only repositories
+           with GitHub visibility PUBLIC or PRIVATE.
+  - ADDED: listing order by visibility criteria (PRIVATE first, then PUBLIC),
+           then alphabetical path ordering.
 
 ## v1.3.9 – 2026-03-28 – Bruno DELNOZ
   - FIXED: remote-ahead guard no longer fails when origin/<branch> does
@@ -1656,6 +1678,122 @@ run_cpagentsmdonly() {
     CUSTOM_CMD="${previous_custom_cmd}"
 }
 
+# ------------------------------------------------------------------------------
+# Function : extract_github_slug
+# Purpose  : Convert a GitHub remote URL to owner/repo slug format.
+# Args     : $1 = remote URL
+# Output   : owner/repo when recognized, empty string otherwise
+# ------------------------------------------------------------------------------
+extract_github_slug() {
+    local remote_url="$1"
+    local slug=""
+
+    case "${remote_url}" in
+        git@github.com:*)
+            slug="${remote_url#git@github.com:}"
+            ;;
+        https://github.com/*)
+            slug="${remote_url#https://github.com/}"
+            ;;
+        *)
+            slug=""
+            ;;
+    esac
+
+    slug="${slug%.git}"
+    echo "${slug}"
+}
+
+# ------------------------------------------------------------------------------
+# Function : run_listpubpriv
+# Purpose  : Scan repositories and list only PUBLIC/PRIVATE visibility repos
+#            (GitHub), ordered by visibility criteria then by path.
+# ------------------------------------------------------------------------------
+run_listpubpriv() {
+    setup_directories
+    init_run_context
+
+    if ! command -v gh >/dev/null 2>&1; then
+        die "Action --listpubpriv requires GitHub CLI 'gh'. Install it or run --install."
+    fi
+    if ! gh auth status >/dev/null 2>&1; then
+        die "Action --listpubpriv requires authenticated GitHub CLI (run: gh auth login)."
+    fi
+
+    [[ -d "${ROOT_DIR}" ]] || die "Root directory does not exist: '${ROOT_DIR}'"
+    [[ -r "${ROOT_DIR}" ]] || die "Root directory not readable: '${ROOT_DIR}'"
+
+    declare -a repo_paths=()
+    while IFS= read -r gitdir; do
+        repo_paths+=("${gitdir%/.git}")
+    done < <(find "${ROOT_DIR}" -type d -name ".git" -not -path "*/.git/*" 2>/dev/null)
+
+    TOTAL_REPOS="${#repo_paths[@]}"
+    REPOS_SYNCED=0
+    REPOS_SKIPPED=0
+    REPOS_FAILED=0
+    ACTIONS_DONE=()
+
+    local tmp_list_file="${DEST_DIR}/listpubpriv.${SCRIPT_NAME}.${RUN_TS}.tmp"
+    : > "${tmp_list_file}"
+
+    local repo_path=""
+    local remote_url=""
+    local slug=""
+    local visibility=""
+    local vis_rank=""
+    local listed_count=0
+    for repo_path in "${repo_paths[@]}"; do
+        if is_excluded "${repo_path}"; then
+            REPOS_SKIPPED=$((REPOS_SKIPPED + 1))
+            log_action "EXCLUDED: ${repo_path}"
+            continue
+        fi
+
+        remote_url="$(git -C "${repo_path}" remote get-url origin 2>/dev/null || true)"
+        [[ -z "${remote_url}" ]] && continue
+
+        slug="$(extract_github_slug "${remote_url}")"
+        [[ -z "${slug}" ]] && continue
+
+        visibility="$(gh repo view "${slug}" --json visibility -q .visibility 2>/dev/null || true)"
+        case "${visibility}" in
+            PRIVATE)
+                vis_rank="1"
+                ;;
+            PUBLIC)
+                vis_rank="2"
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
+        printf '%s|%s|%s\n' "${vis_rank}" "${visibility}" "${repo_path}" >> "${tmp_list_file}"
+        listed_count=$((listed_count + 1))
+    done
+
+    local sorted_file="${DEST_DIR}/listpubpriv.${SCRIPT_NAME}.${RUN_TS}.txt"
+    if [[ -s "${tmp_list_file}" ]]; then
+        sort -t'|' -k1,1n -k3,3 "${tmp_list_file}" \
+            | awk -F'|' '{printf "%-8s | %s\n", $2, $3}' > "${sorted_file}"
+    else
+        echo "No PUBLIC/PRIVATE GitHub repository found under: ${ROOT_DIR}" > "${sorted_file}"
+    fi
+    rm -f "${tmp_list_file}"
+
+    echo ""
+    echo "Visibility | Repository path"
+    echo "-----------+------------------------------------------------------"
+    cat "${sorted_file}"
+    echo ""
+
+    RESULT_FILE="${sorted_file}"
+    REPOS_SYNCED="${listed_count}"
+    log_action "Generated PUBLIC/PRIVATE listing: ${sorted_file}"
+    log "OK" "PUBLIC/PRIVATE listing written to: ${sorted_file}"
+}
+
 # ==============================================================================
 # SECTION 18 – ARGUMENT PARSING
 # ==============================================================================
@@ -1691,6 +1829,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --changelog|-ch)
             ACTION_MODE="changelog"
+            shift
+            ;;
+        --listpubpriv)
+            ACTION_MODE="listpubpriv"
             shift
             ;;
         --cpagentsmdonly)
@@ -1786,6 +1928,9 @@ case "${ACTION_MODE}" in
     cpagentsmdonly)
         run_cpagentsmdonly
         ;;
+    listpubpriv)
+        run_listpubpriv
+        ;;
     prerequis)
         setup_directories
         check_prerequisites
@@ -1801,7 +1946,7 @@ case "${ACTION_MODE}" in
         purge_directories
         ;;
     "")
-        die "No action specified. Use --exec, --cpagentsmdonly, --prerequis, --install, --changelog, or --purge."
+        die "No action specified. Use --exec, --cpagentsmdonly, --listpubpriv, --prerequis, --install, --changelog, or --purge."
         ;;
     *)
         die "Unknown action mode: '${ACTION_MODE}'"
