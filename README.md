@@ -2,11 +2,11 @@
 Document : README.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.9
-Date : 2026-03-28 06:10
+Version : v1.4.0
+Date : 2026-03-29 10:15
 -->
-> **Version** : v1.3.9
-> **Date**    : 2026-03-28
+> **Version** : v1.4.0
+> **Date**    : 2026-03-29
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
 ---
@@ -91,6 +91,9 @@ syncgit.sh --exec --root_dir /mnt/data/Security --cpagentsmd
 # Copier uniquement AGENTS.md (aucune autre opération repo)
 syncgit.sh --cpagentsmdonly --root_dir /mnt/data/Security
 
+# Lister uniquement les repos GitHub PRIVATE/PUBLIC triés par visibilité
+syncgit.sh --listpubpriv --root_dir /mnt/data/Security
+
 # Simulation (dry-run, aucun changement réel)
 syncgit.sh --simulate
 
@@ -126,6 +129,7 @@ syncgit.sh --purge --yes
 | `--forcepush`   | `-f`   | Force les push même si le remote est ahead    | désactivé        |
 | `--cpagentsmd`  | –      | Copie le `AGENTS.md` master dans chaque repo (overwrite forcé) | désactivé |
 | `--cpagentsmdonly` | –   | Mode copy-only: copie AGENTS.md dans chaque repo, sans autre action | désactivé |
+| `--listpubpriv` | –      | Liste uniquement les repos GitHub `PRIVATE`/`PUBLIC` triés par visibilité | désactivé |
 | `--cmd`         | –      | Commande shell personnalisée par repo        | (séquence défaut)|
 | `--exclude`     | –      | Liste de repos à ignorer (séparés par `;`)   | –                |
 | `--recurrent`   | –      | Répéter toutes les N secondes                | désactivé        |
@@ -153,6 +157,7 @@ syncgit.sh --purge --yes
 - Si `origin/<branch>` n'existe pas, le garde-fou `remote ahead` est ignoré (pas de blocage sur `git fetch origin <branch>`)
 - `--cpagentsmd` copie `${SCRIPT_DIR}/AGENTS.md` vers `<repo>/AGENTS.md` avant toute autre opération repo (overwrite forcé)
 - `--cpagentsmdonly` ne fait que la copie AGENTS.md (pas de checkout/add/commit/push/cmd)
+- `--listpubpriv` ne fait qu'une liste triée (`PRIVATE` puis `PUBLIC`) des repos GitHub détectés
 
 ---
 

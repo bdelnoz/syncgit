@@ -2,8 +2,8 @@
 Document : INSTALL.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.3.9
-Date : 2026-03-28 06:10
+Version : v1.4.0
+Date : 2026-03-29 10:15
 -->
 # Installation
 
@@ -36,3 +36,9 @@ Date : 2026-03-28 06:10
 ```bash
 ./syncgit.sh --cpagentsmdonly --root_dir /path/to/root
 ```
+
+## Visibility listing mode
+```bash
+./syncgit.sh --listpubpriv --root_dir /path/to/root
+```
+Note: requires authenticated GitHub CLI (`gh auth status`).
