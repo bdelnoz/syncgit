@@ -14,10 +14,19 @@
 #                        git commit -m "commit last version done by syncgit.sh user: <USER>   date : <YYYY-MM-DD> time <HH:MM:SS>"
 #                        git push --set-upstream --force origin <branch>
 #                  (b) runs a custom shell command via --cmd "<cmd>"
-# VERSION      : v1.4.0
+# VERSION      : v1.5.0
 # DATE         : 2026-03-29
 # ==============================================================================
 # CHANGELOG (summary – full detail in ./infos/CHANGELOG.md):
+#   v1.5.0 – 2026-03-29 – Bruno DELNOZ
+#       Changed:
+#       - ADDED: --gitpull option for --exec mode.
+#       - ADDED: pull workflow creates backup snapshot branch
+#                syncgit-pull-snapshot/YYYYMMDD-HHhMM from current branch,
+#                pushes it to origin, then pulls all local branches recursively.
+#       - ADDED: per-repo final status now supports PULLED when updates were
+#                effectively fetched/merged; keeps SYNCED when already up to date.
+#       - UPDATED: --gitpull mode ignores AGENTS propagation options by design.
 #   v1.4.0 – 2026-03-29 – Bruno DELNOZ
 #       Changed:
 #       - ADDED: --listpubpriv action to only list repositories that are
@@ -123,7 +132,7 @@ IFS=$'\n\t'
 # ==============================================================================
 
 SCRIPT_NAME="syncgit.sh"
-SCRIPT_VERSION="v1.4.0"
+SCRIPT_VERSION="v1.5.0"
 SCRIPT_DATE="2026-03-29"
 AUTHOR="Bruno DELNOZ"
 EMAIL="bruno.delnoz@protonmail.com"
@@ -161,6 +170,7 @@ PURGE_YES=0                 # Safety flag: purge only proceeds if --yes is also 
 FORCE_PUSH=0                # 1 = bypass remote-ahead guard and force push anyway
 CP_AGENTS_MD=0              # 1 = copy SCRIPT_DIR/AGENTS.md into each detected repo
 CP_AGENTS_MD_ONLY=0         # 1 = run copy-only mode (no other repo operation)
+GIT_PULL_MODE=0             # 1 = run --gitpull workflow instead of default sync push
 
 # --- Runtime state (computed at startup via init_run_context) ---
 RUN_TS=""                   # Timestamp string generated at run start
@@ -173,6 +183,7 @@ LARGEFILE_LOG=""            # Full path to the large files log for this run
 REPO_SYNC_WARNING=""        # Warning message for current repo (SSH→HTTPS, wip, etc.)
 LARGE_FILES_FOUND=0         # 1 if large files (>100MB) detected in git history
 REPO_FAIL_REASON=""         # Explicit failure reason for current repo (if set)
+REPO_FINAL_STATUS="SYNCED"  # SYNCED|PULLED for per-repo success reporting
 
 # --- Execution counters ---
 TOTAL_REPOS=0
@@ -449,6 +460,20 @@ OPTIONS (for use with --exec):
                            Presence of this flag alone activates simulation.
                            Default : off
 
+  --gitpull                In --exec mode, run pull workflow instead of
+                           default sync/push workflow.
+                           Workflow per repo:
+                             [a] create backup branch:
+                                 syncgit-pull-snapshot/YYYYMMDD-HHhMM
+                             [b] push backup branch to origin
+                             [c] fetch all remotes with prune
+                             [d] pull all local branches recursively
+                           Repo result:
+                             PULLED when at least one branch moved
+                             SYNCED when everything was already up to date
+                           Note:
+                             --cpagentsmd / --cpagentsmdonly are ignored in this mode.
+
   --cmd "<command>"        Custom shell command to run in each repo instead
                            of the default sync sequence.
                            If omitted, the default sequence runs:
@@ -495,6 +520,9 @@ EXAMPLES:
 
   # Run a custom shell command in each repo:
   ./${SCRIPT_NAME} --exec --cmd "git pull --rebase"
+
+  # Pull mode with backup snapshot branch + recursive pull all branches:
+  ./${SCRIPT_NAME} --exec --gitpull --root_dir /mnt/data/Security
 
   # Run a direct shell command in each repo:
   ./${SCRIPT_NAME} --exec --cmd "rm -f .gigi" --root_dir /mnt/data/Security
@@ -544,6 +572,14 @@ show_changelog() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CHANGELOG – syncgit.sh
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+## v1.5.0 – 2026-03-29 – Bruno DELNOZ
+  - ADDED: --gitpull option for --exec mode.
+  - ADDED: pull workflow now creates and pushes backup branch
+           syncgit-pull-snapshot/YYYYMMDD-HHhMM before pulling.
+  - ADDED: recursive pull on all local branches (when origin/<branch> exists).
+  - ADDED: per-repo success status can be PULLED or SYNCED.
+  - UPDATED: --gitpull mode ignores AGENTS propagation options.
 
 ## v1.4.0 – 2026-03-29 – Bruno DELNOZ
   - ADDED: new action --listpubpriv.
@@ -991,7 +1027,7 @@ write_result_file() {
         local action
         for action in "${ACTIONS_DONE[@]}"; do
             case "${action}" in
-                SYNCED:*|FAILED*|EXCLUDED:*)
+                SYNCED:*|PULLED:*|FAILED*|EXCLUDED:*)
                     ;;
                 *)
                     echo "  - ${action}"
@@ -1001,7 +1037,7 @@ write_result_file() {
         local idx=1
         for action in "${ACTIONS_DONE[@]}"; do
             case "${action}" in
-                SYNCED:*|FAILED*|EXCLUDED:*)
+                SYNCED:*|PULLED:*|FAILED*|EXCLUDED:*)
                     echo "  ${idx}. ${action}"
                     idx=$((idx + 1))
                     ;;
@@ -1035,7 +1071,7 @@ display_post_exec_summary() {
     local action
     for action in "${ACTIONS_DONE[@]}"; do
         case "${action}" in
-            SYNCED:*|FAILED*|EXCLUDED:*)
+            SYNCED:*|PULLED:*|FAILED*|EXCLUDED:*)
                 ;;
             *)
                 echo "  - ${action}"
@@ -1045,7 +1081,7 @@ display_post_exec_summary() {
     local idx=1
     for action in "${ACTIONS_DONE[@]}"; do
         case "${action}" in
-            SYNCED:*|FAILED*|EXCLUDED:*)
+            SYNCED:*|PULLED:*|FAILED*|EXCLUDED:*)
                 echo "  ${idx}. ${action}"
                 idx=$((idx + 1))
                 ;;
@@ -1284,6 +1320,162 @@ run_default_git_sync() {
 }
 
 # ------------------------------------------------------------------------------
+# Function : run_git_pull_workflow
+# Purpose  : Pull-mode workflow used by --exec --gitpull.
+# Sequence :
+#   a) Create backup branch from current HEAD:
+#      syncgit-pull-snapshot/YYYYMMDD-HHhMM
+#   b) Push backup branch to origin
+#   c) Fetch all remotes and prune stale refs
+#   d) Pull all local branches recursively (when matching origin branch exists)
+# Result flags:
+#   REPO_FINAL_STATUS = PULLED when at least one branch moved after pull
+#   REPO_FINAL_STATUS = SYNCED when all branches were already up to date
+# ------------------------------------------------------------------------------
+run_git_pull_workflow() {
+    local repo_path="$1"
+    local _step_total=4
+
+    REPO_FINAL_STATUS="SYNCED"
+    log "INFO" "  Running --gitpull workflow in: ${repo_path}"
+
+    local current_branch=""
+    current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [[ -z "${current_branch}" || "${current_branch}" == "HEAD" ]]; then
+        log "ERROR" "  Cannot determine a valid current branch in repository."
+        return 60
+    fi
+
+    # Step a/4 - create backup snapshot branch from current branch HEAD
+    local snapshot_branch="syncgit-pull-snapshot/$(date '+%Y%m%d-%Hh%M')"
+    echo "  ┌─ [a/${_step_total}] git branch ${snapshot_branch}  (from ${current_branch})"
+    local snap_exit=0
+    run_cmd \
+        "git branch ${snapshot_branch}" \
+        "git branch ${snapshot_branch}" || snap_exit=$?
+    if [[ "${snap_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${snap_exit}) – snapshot branch creation"
+        log "ERROR" "  snapshot branch creation failed (exit ${snap_exit})"
+        return "${snap_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    # Step b/4 - push backup branch
+    echo "  ┌─ [b/${_step_total}] git push --set-upstream origin ${snapshot_branch}"
+    local snap_push_exit=0
+    run_cmd \
+        "git push --set-upstream origin ${snapshot_branch}" \
+        "git push --set-upstream origin ${snapshot_branch}" || snap_push_exit=$?
+    if [[ "${snap_push_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${snap_push_exit}) – backup snapshot push"
+        log "ERROR" "  backup snapshot push failed (exit ${snap_push_exit})"
+        return "${snap_push_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    # Step c/4 - fetch all remotes and prune
+    echo "  ┌─ [c/${_step_total}] git fetch --all --prune"
+    local fetch_all_exit=0
+    run_cmd \
+        "git fetch --all --prune" \
+        "git fetch --all --prune" || fetch_all_exit=$?
+    if [[ "${fetch_all_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+        echo "  └─ ✘ FAILED (exit ${fetch_all_exit}) – fetch --all --prune"
+        log "ERROR" "  fetch --all --prune failed (exit ${fetch_all_exit})"
+        return "${fetch_all_exit}"
+    fi
+    echo "  └─ ✔ done"
+
+    # Step d/4 - pull all local branches recursively
+    echo "  ┌─ [d/${_step_total}] pull all local branches recursively"
+    local pulled_count=0
+    local synced_count=0
+    local skipped_count=0
+    local branch=""
+    local checkout_exit=0
+    local pull_exit=0
+    local pre_head=""
+    local post_head=""
+    local tmp_pull_output=""
+    tmp_pull_output="$(mktemp)"
+
+    while IFS= read -r branch; do
+        [[ -z "${branch}" ]] && continue
+
+        if ! git show-ref --verify --quiet "refs/remotes/origin/${branch}" 2>/dev/null; then
+            log "WARN" "  --gitpull: skipping branch '${branch}' (origin/${branch} not found)."
+            skipped_count=$((skipped_count + 1))
+            continue
+        fi
+
+        checkout_exit=0
+        run_cmd \
+            "git checkout ${branch}" \
+            "git checkout ${branch}" || checkout_exit=$?
+        if [[ "${checkout_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+            rm -f "${tmp_pull_output}"
+            log "ERROR" "  --gitpull: checkout failed for '${branch}' (exit ${checkout_exit})."
+            return "${checkout_exit}"
+        fi
+
+        pre_head="$(git rev-parse HEAD 2>/dev/null || true)"
+        pull_exit=0
+        if [[ "${SIMULATE}" -eq 1 ]]; then
+            run_cmd \
+                "git pull --recurse-submodules origin ${branch}" \
+                "git pull --recurse-submodules origin ${branch}" || pull_exit=$?
+        else
+            if ! git pull --recurse-submodules origin "${branch}" \
+                < /dev/null \
+                > >(tee "${tmp_pull_output}") \
+                2> >(tee -a "${STDERR_LOG:-/dev/null}" >&2); then
+                pull_exit=$?
+            fi
+        fi
+
+        if [[ "${pull_exit}" -ne 0 && "${SIMULATE}" -eq 0 ]]; then
+            rm -f "${tmp_pull_output}"
+            log "ERROR" "  --gitpull: pull failed for '${branch}' (exit ${pull_exit})."
+            return "${pull_exit}"
+        fi
+
+        if [[ "${SIMULATE}" -eq 1 ]]; then
+            synced_count=$((synced_count + 1))
+            continue
+        fi
+
+        post_head="$(git rev-parse HEAD 2>/dev/null || true)"
+        if [[ -n "${pre_head}" && -n "${post_head}" && "${pre_head}" != "${post_head}" ]]; then
+            pulled_count=$((pulled_count + 1))
+        elif grep -qi "Already up[ -]to[ -]date" "${tmp_pull_output}" 2>/dev/null; then
+            synced_count=$((synced_count + 1))
+        else
+            synced_count=$((synced_count + 1))
+        fi
+    done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+
+    rm -f "${tmp_pull_output}"
+
+    # Return to initial branch when possible
+    run_cmd "git checkout ${current_branch}" "git checkout ${current_branch}" || true
+
+    if [[ "${pulled_count}" -gt 0 ]]; then
+        REPO_FINAL_STATUS="PULLED"
+    else
+        REPO_FINAL_STATUS="SYNCED"
+    fi
+
+    if [[ -z "${REPO_SYNC_WARNING}" ]]; then
+        REPO_SYNC_WARNING="pull branches updated=${pulled_count} synced=${synced_count} skipped=${skipped_count}"
+    else
+        REPO_SYNC_WARNING="${REPO_SYNC_WARNING} / pull branches updated=${pulled_count} synced=${synced_count} skipped=${skipped_count}"
+    fi
+
+    echo "  └─ ✔ done"
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # Function : copy_master_agentsmd_to_repo
 # Purpose  : Copy SCRIPT_DIR/AGENTS.md to <repo>/AGENTS.md before any other
 #            repository operation when --cpagentsmd is enabled.
@@ -1384,6 +1576,7 @@ run_one_pass() {
     log "INFO" "Starting pass – ${SCRIPT_NAME} ${SCRIPT_VERSION}"
     log "INFO" "  Root dir   : ${ROOT_DIR}"
     log "INFO" "  Branch     : ${BRANCH}"
+    log "INFO" "  Git pull   : ${GIT_PULL_MODE}"
     log "INFO" "  Custom cmd : ${CUSTOM_CMD:-(default git sequence)}"
     log "INFO" "  Simulate   : ${SIMULATE}"
     log "INFO" "  Exclude    : ${EXCLUDE_LIST:-(none)}"
@@ -1483,7 +1676,9 @@ run_one_pass() {
         log "INFO" "  Working dir: $(pwd)"
 
         # Optional pre-operation: copy master AGENTS.md into repo (forced overwrite)
-        if [[ "${CP_AGENTS_MD}" -eq 1 ]]; then
+        if [[ "${CP_AGENTS_MD}" -eq 1 && "${GIT_PULL_MODE}" -eq 1 ]]; then
+            log "WARN" "  --gitpull mode: ignoring --cpagentsmd for this repository as requested."
+        elif [[ "${CP_AGENTS_MD}" -eq 1 ]]; then
             local cpagents_exit=0
             copy_master_agentsmd_to_repo "${repo_path}" || cpagents_exit=$?
             if [[ "${cpagents_exit}" -ne 0 ]]; then
@@ -1499,11 +1694,12 @@ run_one_pass() {
         REPO_SYNC_WARNING=""
         LARGE_FILES_FOUND=0
         REPO_FAIL_REASON=""
+        REPO_FINAL_STATUS="SYNCED"
 
         # If using default sequence, verify the target branch exists.
         # FIX v1.3.0: if 'main' is missing but 'master' exists, auto-create main
         # from master and continue. If neither exists, mark repo as FAILED.
-        if [[ -z "${CUSTOM_CMD}" ]]; then
+        if [[ -z "${CUSTOM_CMD}" && "${GIT_PULL_MODE}" -eq 0 ]]; then
             if ! git show-ref --verify --quiet "refs/heads/${BRANCH}" 2>/dev/null; then
                 if [[ "${BRANCH}" == "main" ]] && \
                    git show-ref --verify --quiet "refs/heads/master" 2>/dev/null; then
@@ -1538,6 +1734,8 @@ run_one_pass() {
             run_cmd \
                 "Running '${CUSTOM_CMD}' in ${repo_path}" \
                 "${CUSTOM_CMD}" || cmd_exit=$?
+        elif [[ "${GIT_PULL_MODE}" -eq 1 ]]; then
+            run_git_pull_workflow "${repo_path}" || cmd_exit=$?
         else
             run_default_git_sync "${repo_path}" || cmd_exit=$?
         fi
@@ -1549,13 +1747,13 @@ run_one_pass() {
         if [[ "${cmd_exit}" -eq 0 || "${SIMULATE}" -eq 1 ]]; then
             REPOS_SYNCED=$((REPOS_SYNCED + 1))
             if [[ -n "${REPO_SYNC_WARNING}" ]]; then
-                echo "  ✔ SYNCED - ${REPO_SYNC_WARNING} : ${repo_path}"
-                log "OK" "SYNCED - ${REPO_SYNC_WARNING}: ${repo_path}"
-                log_action "SYNCED - ${REPO_SYNC_WARNING}: ${repo_path}"
+                echo "  ✔ ${REPO_FINAL_STATUS} - ${REPO_SYNC_WARNING} : ${repo_path}"
+                log "OK" "${REPO_FINAL_STATUS} - ${REPO_SYNC_WARNING}: ${repo_path}"
+                log_action "${REPO_FINAL_STATUS} - ${REPO_SYNC_WARNING}: ${repo_path}"
             else
-                echo "  ✔ SUCCESS : ${repo_path}"
-                log "OK" "SUCCESS: ${repo_path}"
-                log_action "SYNCED: ${repo_path}"
+                echo "  ✔ ${REPO_FINAL_STATUS} : ${repo_path}"
+                log "OK" "${REPO_FINAL_STATUS}: ${repo_path}"
+                log_action "${REPO_FINAL_STATUS}: ${repo_path}"
             fi
         else
             REPOS_FAILED=$((REPOS_FAILED + 1))
@@ -1862,6 +2060,10 @@ while [[ $# -gt 0 ]]; do
             CP_AGENTS_MD=1
             shift
             ;;
+        --gitpull)
+            GIT_PULL_MODE=1
+            shift
+            ;;
         --root_dir)
             [[ -z "${2:-}" ]] && die "--root_dir requires a path argument."
             ROOT_DIR="$2"
@@ -1915,6 +2117,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ "${GIT_PULL_MODE}" -eq 1 && -n "${CUSTOM_CMD}" ]]; then
+    die "--gitpull cannot be combined with --cmd. Choose one mode."
+fi
 
 # ==============================================================================
 # SECTION 19 – ACTION DISPATCH

@@ -2,12 +2,28 @@
 Document : CHANGELOG.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.4.0
-Date : 2026-03-29 10:15
+Version : v1.5.0
+Date : 2026-03-29 03:29
 -->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.5.0 – 2026-03-29 03:29 – Bruno DELNOZ
+
+Changed.
+
+- **ADDED**: new option `--gitpull` in `--exec` mode.
+- **ADDED**: backup snapshot branch creation using format
+  `syncgit-pull-snapshot/YYYYMMDD-HHhMM` before pull operations.
+- **ADDED**: backup snapshot branch push to `origin` before recursive pull.
+- **ADDED**: recursive pull workflow over all local branches that have a
+  matching `origin/<branch>`.
+- **ADDED**: per-repository success status now supports `PULLED` in addition
+  to `SYNCED`.
+- **UPDATED**: in `--gitpull` mode, AGENTS propagation options are ignored.
 
 ---
 
