@@ -2,8 +2,8 @@
 Document : INSTALL.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.4.0
-Date : 2026-03-29 10:15
+Version : v1.5.0
+Date : 2026-03-29 03:29
 -->
 # Installation
 
@@ -27,6 +27,13 @@ Date : 2026-03-29 10:15
 ```bash
 ./syncgit.sh --exec --root_dir .
 ```
+
+## Pull mode with snapshot backup
+```bash
+./syncgit.sh --exec --gitpull --root_dir /path/to/root
+```
+This mode creates and pushes `syncgit-pull-snapshot/YYYYMMDD-HHhMM` before
+pulling all local branches recursively (when `origin/<branch>` exists).
 
 ## Remote branch note
 - From v1.3.9, the remote-ahead guard does not fail when `origin/<branch>` is

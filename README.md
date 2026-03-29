@@ -2,10 +2,10 @@
 Document : README.md
 Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.4.0
-Date : 2026-03-29 10:15
+Version : v1.5.0
+Date : 2026-03-29 03:29
 -->
-> **Version** : v1.4.0
+> **Version** : v1.5.0
 > **Date**    : 2026-03-29
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
@@ -52,6 +52,16 @@ Pour chaque dépôt trouvé, le script exécute soit :
    ```
 
 2. **Une commande personnalisée** via `--cmd "<commande>"`.
+3. **Le mode pull** via `--gitpull` :
+   ```bash
+   git branch syncgit-pull-snapshot/YYYYMMDD-HHhMM
+   git push --set-upstream origin syncgit-pull-snapshot/YYYYMMDD-HHhMM
+   git fetch --all --prune
+   git checkout <branche_locale>
+   git pull --recurse-submodules origin <branche_locale>
+   ```
+   Ce mode marque le repo en `PULLED` si au moins une branche locale avance,
+   sinon en `SYNCED` si tout est déjà aligné.
 
 ---
 
@@ -106,6 +116,9 @@ syncgit.sh --exec --exclude "LinkedIn-Learning-Downloader;kali-arm"
 # Commande personnalisée dans chaque repo
 syncgit.sh --exec --cmd "git pull --rebase"
 
+# Mode pull: branche snapshot de backup + pull récursif multi-branches
+syncgit.sh --exec --gitpull --root_dir /mnt/data/Security
+
 # Répéter automatiquement toutes les 5 minutes
 syncgit.sh --exec --root_dir /mnt/data --recurrent 300
 
@@ -127,6 +140,7 @@ syncgit.sh --purge --yes
 | `--logs_dir`    | –      | Dossier pour les fichiers de log             | `./logs`         |
 | `--branch`      | –      | Branche git (défaut main, validée)           | `main`           |
 | `--forcepush`   | `-f`   | Force les push même si le remote est ahead    | désactivé        |
+| `--gitpull`     | –      | Mode pull avec snapshot backup puis pull récursif | désactivé     |
 | `--cpagentsmd`  | –      | Copie le `AGENTS.md` master dans chaque repo (overwrite forcé) | désactivé |
 | `--cpagentsmdonly` | –   | Mode copy-only: copie AGENTS.md dans chaque repo, sans autre action | désactivé |
 | `--listpubpriv` | –      | Liste uniquement les repos GitHub `PRIVATE`/`PUBLIC` triés par visibilité | désactivé |
@@ -158,6 +172,8 @@ syncgit.sh --purge --yes
 - `--cpagentsmd` copie `${SCRIPT_DIR}/AGENTS.md` vers `<repo>/AGENTS.md` avant toute autre opération repo (overwrite forcé)
 - `--cpagentsmdonly` ne fait que la copie AGENTS.md (pas de checkout/add/commit/push/cmd)
 - `--listpubpriv` ne fait qu'une liste triée (`PRIVATE` puis `PUBLIC`) des repos GitHub détectés
+- `--gitpull` crée `syncgit-pull-snapshot/YYYYMMDD-HHhMM`, le pousse sur `origin`, puis pull toutes les branches locales qui ont un `origin/<branch>`
+- En mode `--gitpull`, la propagation AGENTS (`--cpagentsmd` / `--cpagentsmdonly`) n'est pas exécutée
 
 ---
 
