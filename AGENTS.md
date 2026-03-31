@@ -2,8 +2,8 @@
 Document : AGENTS.md
 Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.5.0
-Date : 2026-03-31 15:25
+Version : v3.7.1
+Date : 2026-03-31 15:55
 -->
 # AGENTS.md
 
@@ -357,3 +357,139 @@ Date : YYYY-MM-DD HH:MM
 - Apply these rules before proposing code changes, reviews, or generated artifacts.
 - When working inside this repository, prefer compliance with this file over generic habits.
 - Keep outputs strict, direct, and operational.
+
+
+## 13.0 Specific rules for specific repositories
+
+The following subsections define rules that apply ONLY to explicitly targeted repositories.
+
+Each subsection targets one repository only.
+
+If the current repository does NOT match the repository explicitly named in a subsection, that subsection MUST be ignored entirely.
+
+These repository-specific rules supplement or override the default behavior only for the targeted repository.
+
+### 13.1 Specific rules for repository `bdelnoz/Emploi`
+
+#### 13.1.1 Scope
+- These rules apply ONLY if the current repository is exactly:
+  - `bdelnoz/Emploi`
+- Otherwise, this subsection MUST be ignored entirely.
+
+#### 13.1.2 Repository objective
+- This repository is dedicated primarily to:
+  - job offer analysis
+  - targeted CV generation
+  - cover letter generation
+  - professional application document generation
+- For this repository, the agent MUST prioritize high-quality professional application deliverables over generic code-oriented behavior.
+
+#### 13.1.3 Mandatory new CV generation
+- For each new job-offer-based CV request, the agent MUST create NEW CV files.
+- The agent MUST NOT return an existing CV file as the final result.
+- The agent MUST NOT merely rename an existing CV file and present it as a new deliverable.
+- Existing CV files in the repository are SOURCE MATERIAL ONLY.
+
+#### 13.1.4 Mandatory multi-version output
+- Unless the user explicitly requests otherwise, each targeted CV generation task MUST produce:
+  - 1 CV in 2 pages
+  - 1 CV in 3 pages
+  - 1 CV in 4 pages
+  - 1 CV in 5 pages
+- The expected default total is:
+  - 4 distinct CV files
+
+#### 13.1.5 TARGET_COMPANY support
+- The user MAY explicitly provide a target company string using:
+  - `TARGET_COMPANY=<VALUE>`
+- If `TARGET_COMPANY` is explicitly provided by the user, the agent MUST use that exact value as the source of truth for file naming.
+- The agent MUST NOT modify, normalize, simplify, translate, or replace that provided value.
+- If `TARGET_COMPANY` is not provided:
+  - try to extract the target company from the job offer and ask user his agrement with your extracton before doing anything else 
+  - if extraction is impossible, ask this info to the user before doing anything
+- Never start creating the documents without this information or the confirmation given by the user.
+
+#### 13.1.6 Mandatory filename rules
+- Every element of the gererated filename must be seprated by a - 
+- Element that contains more than one word must be separated by a _
+
+- Every generated CV filename MUST:
+  - contain the `TARGET_COMPANY` value exactly inside the full filemane
+  - clearly distinguish the number of pages variant
+  - use the `.docx` format
+- Accepted page markers must include:
+  - `2_Pages`
+  - `3_Pages`
+  - `4_Pages`
+  - `5_Pages`
+- The rest of the filename may vary, but `TARGET_COMPANY` is mandatory.
+- the filename should start with : "CV_BRUNO_DELNOZ".
+- then the user prompt provided as TARGET_COMPANY (see 13.1.5) ie: ESA_REDU
+- then the job position name (I.E.: System_Enginer, Enterprise_Architect).
+- Then the current YYYY_MM
+- Then the pages markers is : 2_Pages , 3_Pages 
+- Then the version of the CV. ie: 1.0.0 (each new request or modif must increment that version)
+- Then the .docx extension
+
+so a filename should look like this : 
+CV_BRUNO_DELNOZ-ESA_REDU-Systems_And_Network_Engineer-2026_03-2_Pages-1.0.0.docx 
+
+#### 13.1.7 Mandatory generation workflow
+- For each targeted CV request, the agent MUST:
+  1. analyze the job offer
+  2. identify the target role
+  3. identify the key required skills and responsibilities
+  4. search the repository for relevant factual source material
+  5. extract and recombine relevant information
+  6. build a NEW targeted CV
+  7. produce the required output variants
+- The agent MUST NOT skip repository source analysis for this repository.
+
+#### 13.1.8 Anti-hallucination rules for `bdelnoz/Emploi`
+- The agent MUST NEVER invent:
+  - experience
+  - job titles
+  - years of experience
+  - technologies
+  - certifications
+  - achievements
+  - metrics
+  - responsibilities
+  - clients
+  - language levels
+- If a requirement from the job offer is not supported by repository data, the agent MUST:
+  - omit it
+  - or phrase it conservatively and honestly
+- Unsupported requirements MUST NEVER be fabricated.
+
+#### 13.1.9 Existing repository material usage
+- Existing CVs, letters, analyses, and all other related files in this repository may be used only to:
+  - extract factual content
+  - identify the best positioning
+  - compare structures
+  - reuse valid wording
+- They MUST NOT be reused as-is as final deliverables when a new targeted CV is requested.
+
+#### 13.1.10 Output format requirement
+- For this repository, final CV deliverables requested as professional outputs MUST be actually generated in:
+  - `.docx`
+- If the requested final `.docx` files are not actually generated, the task is NOT complete.
+- The layout, format, title tree, etc should be inspired by all .docx resume located inside the repo including subdir etc 
+
+#### 13.1.11 Consistency requirement across variants
+- The generated 2-pages, 3-pages, 4-pages, and 5-pages versions MUST:
+  - target the same role
+  - use the same factual base
+  - remain mutually consistent
+- They may differ in compression level and detail level only.
+
+#### 13.1.12 Definition of done for `bdelnoz/Emploi`
+- A standard targeted CV task for this repository is complete only if:
+  - the job offer has been analyzed
+  - repository sources have been deeply and fully analaysed and used
+  - a NEW targeted CV set has been generated
+  - the expected variants have been produced unless the user explicitly requested otherwise
+  - all generated CV filenames must respect fully the naming explained in section 13.1.6 
+  - all final CV files are actually generated in `.docx`
+  - no hallucinated data has been introduced
+
