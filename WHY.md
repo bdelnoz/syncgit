@@ -1,9 +1,9 @@
 <!--
 Document : WHY.md
-Auteur : Bruno DELNOZ
+Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.5.0
-Date : 2026-03-29 03:29
+Version : v1.6.0
+Date : 2026-03-31 16:30
 -->
 # Why this project exists
 
@@ -23,3 +23,5 @@ Date : 2026-03-29 03:29
 - dedicated `--gitpull` mode to create a backup snapshot branch
   (`syncgit-pull-snapshot/YYYYMMDD-HHhMM`), push it to origin, then pull all
   local branches recursively with clear `PULLED`/`SYNCED` outcomes
+
+- complementary `findgit.sh` tool to inventory repositories and submodules with simulation/logging support

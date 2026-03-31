@@ -1,13 +1,26 @@
 <!--
 Document : CHANGELOG.md
-Auteur : Bruno DELNOZ
+Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.5.0
-Date : 2026-03-29 03:29
+Version : v1.6.0
+Date : 2026-03-31 16:30
 -->
 # CHANGELOG – syncgit.sh
 
 > **Auteur** : Bruno DELNOZ <bruno.delnoz@protonmail.com>
+
+---
+
+## v1.6.0 – 2026-03-31 16:30 – Bruno DELNOZ
+
+Changed.
+
+- **IMPROVED**: `findgit.sh` from minimal scanner to a full CLI tool with
+  `--exec`, `--simulate`, `--prerequis`, `--install`, `--changelog`, and `--purge`.
+- **ADDED**: safer recursive repository detection, per-repository progress output,
+  runtime logs under `./logs`, and result reports under `./results`.
+- **UPDATED**: repository documentation (`README.md`, `INSTALL.md`, `WHY.md`)
+  with `findgit.sh` usage and behavior notes.
 
 ---
 
