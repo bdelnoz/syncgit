@@ -1,9 +1,9 @@
 <!--
 Document : INSTALL.md
-Author : Bruno DELNOZ
+Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.6.0
-Date : 2026-03-31 16:30
+Version : v1.5.0
+Date : 2026-03-29 03:29
 -->
 # Installation
 
@@ -49,12 +49,3 @@ pulling all local branches recursively (when `origin/<branch>` exists).
 ./syncgit.sh --listpubpriv --root_dir /path/to/root
 ```
 Note: requires authenticated GitHub CLI (`gh auth status`).
-
-
-## findgit.sh quick usage
-```bash
-chmod +x ./findgit.sh
-./findgit.sh --prerequis
-./findgit.sh --simulate --root_dir .
-./findgit.sh --exec --root_dir .
-```

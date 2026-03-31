@@ -1,12 +1,12 @@
 <!--
 Document : README.md
-Author : Bruno DELNOZ
+Auteur : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v1.6.0
-Date : 2026-03-31 16:30
+Version : v1.5.0
+Date : 2026-03-29 03:29
 -->
-> **Version** : v1.6.0
-> **Date**    : 2026-03-31
+> **Version** : v1.5.0
+> **Date**    : 2026-03-29
 > **Author**  : Bruno DELNOZ <bruno.delnoz@protonmail.com>
 
 ---
@@ -194,14 +194,3 @@ syncgit.sh --purge --yes
 |--------|-----------------------------|
 | Nom    | Bruno DELNOZ                |
 | Email  | bruno.delnoz@protonmail.com |
-
-
-## findgit.sh (newly improved)
-
-The repository now also includes an improved `findgit.sh` utility (v1.1.0) with:
-
-- dedicated CLI (`--exec`, `--simulate`, `--prerequis`, `--install`, `--purge`)
-- safer recursive discovery and submodule detection via `.gitmodules`
-- progress display per repository (`index/total`)
-- generated logs in `./logs` and results in `./results`
-- embedded changelog and default help when no argument is provided
