@@ -2,7 +2,7 @@
 Document : AGENTS.md
 Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.7.1
+Version : v3.8.0
 Date : 2026-03-31 15:55
 -->
 # AGENTS.md
@@ -358,6 +358,20 @@ Date : YYYY-MM-DD HH:MM
 - When working inside this repository, prefer compliance with this file over generic habits.
 - Keep outputs strict, direct, and operational.
 
+### 12.1 Global network restriction rules
+
+- Rules defined in repository-specific section `13.x` MUST take precedence over generic network behavior for the targeted repository.
+- External website access is authorized only when the user explicitly provides the external HTTPS URL or the external HTTPS domain in the initial prompt or task input.
+- The agent MUST strictly access only the exact user-provided external HTTPS domain or URL.
+- The agent MUST NOT perform open-ended browsing, autonomous discovery, search engine browsing, or navigation to any other external website or domain.
+- External website access is allowed over HTTPS only.
+- Any `http://` website or any non-HTTPS external source is strictly forbidden.
+- No repository content may be sent outside the local task environment.
+- The agent MUST NEVER send or expose repository files, repository text, drafts, logs, prompts, environment variables, secrets, extracted repository data, or any repository-derived content to any external service.
+- If the user does not explicitly provide an external HTTPS URL or domain, the agent MUST assume that no external internet access is authorized.
+- Repository-specific network rules defined in section `13.x` override this section for the targeted repository.
+
+
 
 ## 13.0 Specific rules for specific repositories
 
@@ -492,4 +506,33 @@ CV_BRUNO_DELNOZ-ESA_REDU-Systems_And_Network_Engineer-2026_03-2_Pages-1.0.0.docx
   - all generated CV filenames must respect fully the naming explained in section 13.1.6 
   - all final CV files are actually generated in `.docx`
   - no hallucinated data has been introduced
+
+#### 13.1.13 Network access policy for `bdelnoz/Emploi`
+
+- For this repository, external internet access is forbidden by default unless the user explicitly provides an external HTTPS website, URL, or domain.
+- If the user explicitly provides an external HTTPS website, URL, or domain, the agent MAY access only that exact user-provided external HTTPS website, URL, or domain.
+- The agent MUST NOT access any other external website or domain, even if the provided website contains links, redirects, embedded content, third-party resources, suggested pages, or references to other websites.
+- The agent MUST use the explicit user-provided external HTTPS website, URL, or domain only to extract factual information strictly useful for:
+  - understanding the target company
+  - understanding the role context
+  - improving factual CV targeting
+  - improving factual cover letter targeting
+- The agent MUST keep external browsing strictly limited to the minimum necessary pages on that same exact user-provided external HTTPS domain.
+
+#### 13.1.14 Outbound data prohibition for `bdelnoz/Emploi`
+
+- This repository is strictly input-only regarding external internet usage.
+- No repository content may be sent outside.
+- The agent MUST NEVER submit forms, authenticate, upload files, send prompts, send repository content, send CV drafts, send cover letters, send logs, send extracted repository data, send environment variables, send secrets, or send any repository-derived information to any external service.
+- HTTP write-capable behavior is forbidden for this repository, even if technically available in the environment.
+- The agent MUST NEVER use external services to request opinions, reviews, AI analysis, third-party enrichment, or any other secondary processing of repository content.
+
+
+#### 13.1.15 Mandatory stop rule for missing external information
+
+- If the agent cannot find the required information on the exact user-provided external HTTPS website, URL, or domain, the agent MUST stop external processing immediately.
+- The agent MUST NOT continue browsing externally.
+- The agent MUST NOT access any other external website or domain.
+- The agent MUST ask the user to provide another explicit external HTTPS source or to explicitly confirm that the task must continue without that missing external information.
+- The agent MUST wait for the user decision before continuing the task.
 
