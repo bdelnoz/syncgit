@@ -1,13 +1,13 @@
 <!--
 Document : AGENTS.md
-Auteur : Bruno DELNOZ
+Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
-Version : v3.3.0
-Date : 2026-03-28 01:35
+Version : v3.5.0
+Date : 2026-03-31 15:25
 -->
 # AGENTS.md
 
-## 🔴 CRITICAL GIT WORKFLOW (HIGHEST PRIORITY)
+## 1. 🔴 CRITICAL GIT WORKFLOW (HIGHEST PRIORITY)
 
 - Every task MUST start from a clean and up-to-date `origin/main`.
 
@@ -38,7 +38,7 @@ Date : 2026-03-28 01:35
 
 - Before proposing any git command that modifies history or state, explicitly prefer the safest non-destructive path unless the user requested a destructive action.
 
-## Active instruction set
+## 2. Active instruction set
 
 - This `AGENTS.md` file is the only active instruction source for this repository.
 - Treat `AGENTS.md` as the only valid active rule set.
@@ -49,7 +49,7 @@ Date : 2026-03-28 01:35
 - Apply these repository rules as written.
 - Do not request, require, or depend on any external rule file when this `AGENTS.md` is present.
 
-## Language and communication rules
+## 3. Language and communication rules
 
 - Interactive chat exchanges with the user MUST be written in French by default.
 - Any AI agent working in this repository MUST reply to the user in French in direct chat interactions, unless the user explicitly requests another language for the conversation.
@@ -59,7 +59,7 @@ Date : 2026-03-28 01:35
 - Only switch repository deliverables or artifacts to French if the user explicitly requests French for those deliverables.
 - Technical terms, code, commands, logs, error messages, protocol names, API names, commit labels, and standard engineering vocabulary may remain in English when appropriate.
 
-## General execution behavior
+## 4. General execution behavior
 
 - Follow the user request directly.
 - Always communicate with the user in French in direct chat interactions unless the user explicitly requests another language.
@@ -88,7 +88,7 @@ Date : 2026-03-28 01:35
 - Do not ask for confirmation when the user clearly requested an immediate modification or generation.
 - Execute the requested work directly unless a real ambiguity blocks correctness.
 
-### Non-destructive update guards (mandatory)
+### 4.1 Non-destructive update guards (mandatory)
 
 - For existing files, update in-place and preserve prior content unless explicit removal is requested by the user.
 - Full file rewrites of existing files are forbidden unless the user explicitly asks for a complete rewrite.
@@ -96,7 +96,7 @@ Date : 2026-03-28 01:35
 - Any change that removes existing `CHANGELOG.md` lines is forbidden unless explicitly requested by the user.
 - Before commit, run a focused diff check on `CHANGELOG.md`; if removed lines are detected, stop and fix before continuing.
 
-### Mandatory companion updates for script-related tasks
+### 4.2 Mandatory companion updates for script-related tasks
 
 - Any modification to a script file automatically requires companion updates in the same task.
 - Unless the user explicitly forbids it, every script-related change MUST also update, create, or complete as needed:
@@ -114,7 +114,7 @@ Date : 2026-03-28 01:35
 - If a script is modified, do not stop after editing only the script when related repository documentation is missing, outdated, or incomplete.
 - When a script changes, repository deliverables must remain synchronized with the script in the same task.
 
-### Mandatory version bump and release metadata updates
+### 4.3 Mandatory version bump and release metadata updates
 
 - Any modification to an existing script file MUST trigger a version bump in the same task.
 - Do not leave the script version unchanged after a real script modification.
@@ -125,20 +125,39 @@ Date : 2026-03-28 01:35
 - If a script change is only cosmetic and the user explicitly forbids version changes, state that constraint clearly; otherwise, do not skip the version bump.
 - Never silently keep the previous version number after modifying script logic, options, behavior, metadata, or documentation tied to that script.
 
-## Secrets and sensitive material
+### 4.4 Definition of done for script-related tasks
+
+- A script-related task is complete only if all mandatory code, metadata, versioning, changelog, and companion documentation updates required by this `AGENTS.md` have been applied.
+- Partial completion is forbidden when mandatory companion updates are still missing.
+- Do not treat the directly requested script file as the only required deliverable when related mandatory updates are still pending.
+- A task must not be marked as finished if any mandatory version bump, metadata update, changelog update, or documentation synchronization is still missing.
+
+### 4.5 Mandatory final compliance check
+
+- Before considering a task complete, perform a final compliance check against this `AGENTS.md`.
+- If any mandatory rule from this `AGENTS.md` is not satisfied, continue the task until full compliance is reached.
+- Before stopping, verify that required files, metadata blocks, version values, dates, changelog entries, and mandatory documentation updates are present and synchronized.
+
+### 4.6 Multi-language applicability
+
+- These rules apply to executable scripts in any supported language, including but not limited to shell, Python, JavaScript, Java, PowerShell, and similar languages.
+- When applicable, related repository deliverables, companion documentation, runtime wrappers, and automation files tied to those scripts must follow the same versioning, synchronization, and metadata rules.
+- Do not treat these rules as shell-only when the repository task concerns an executable script in another supported language.
+
+## 5. Secrets and sensitive material
 
 - Never place secrets, passwords, certificates, tokens, or similar sensitive values directly in versioned code.
 - If a script needs secrets, use a local file at `./.secrets`.
 - Ensure `./.secrets` is covered by `.gitignore`.
 - Do not push secret material to git.
 
-## Script authoring rules
+## 6. Script authoring rules
 
-### Internal comments
+### 6.1 Internal comments
 
 - Comment each block and each section as much as possible to explain the internal logic.
 
-### Mandatory header for executable scripts
+### 6.2 Mandatory header for executable scripts
 
 Every executable script must start with a header containing at minimum:
 
@@ -150,14 +169,14 @@ Every executable script must start with a header containing at minimum:
 - Date
 - Changelog
 
-### Author identity
+### 6.3 Author identity
 
 Use the following values unless the user explicitly overrides them:
 
 - Author: **Bruno DELNOZ**
 - Email: **bruno.delnoz@protonmail.com**
 
-### Versioning
+### 6.4 Versioning
 
 - All generated scripts must be versioned and dated, even for a minor modification.
 - The first version must start at **v1.0** or **v1.0.0**.
@@ -165,7 +184,7 @@ Use the following values unless the user explicitly overrides them:
 - The changelog must be updated every time.
 - Do not add changelog entries that merely say new scripting rules were applied.
 
-### Version bump execution rules
+### 6.5 Version bump execution rules
 
 - Version bumping is mandatory for every script modification unless the user explicitly forbids it.
 - Updating the script content without updating its version metadata is forbidden.
@@ -173,7 +192,7 @@ Use the following values unless the user explicitly overrides them:
 - If a script is modified, the agent MUST update the version, date, and changelog before considering the task finished.
 - Treat version bumping as part of the required implementation, not as an optional follow-up step.
 
-### Changelog rules
+### 6.6 Changelog rules
 
 - Keep the complete version history in the script.
 - No version entry may be omitted.
@@ -181,20 +200,20 @@ Use the following values unless the user explicitly overrides them:
 - The changelog display should use Markdown formatting when possible.
 - If a separate `CHANGELOG.md` file exists, it may hold the detailed history while the script keeps at least every version, its date, and a short explanation.
 
-### Progress display
+### 6.7 Progress display
 
 - When applicable, scripts must display execution progress.
 - For multi-step execution, display the current step with its name and index, for example `Scan du disque (1/56)`.
 
-## Mandatory CLI behavior for scripts
+## 7. Mandatory CLI behavior for scripts
 
-### Help
+### 7.1 Help
 
 - A help block is mandatory.
 - If no argument is provided, display help by default.
 - `--help` must document every usage, every option, every argument, default values, all possible values, and several clear examples.
 
-### Required options
+### 7.2 Required options
 
 Include these options whenever applicable and keep their behavior aligned with this `AGENTS.md`:
 
@@ -207,11 +226,11 @@ Include these options whenever applicable and keep their behavior aligned with t
 - `--changelog` / `-ch`
 - `--purge` / `-pu`
 
-### Defaults
+### 7.3 Defaults
 
 - Define default values when arguments are omitted.
 
-### Simulate mode
+### 7.4 Simulate mode
 
 - `--simulate` is a CLI option.
 - `--simulate` is inactive by default.
@@ -221,32 +240,32 @@ Include these options whenever applicable and keep their behavior aligned with t
 - In simulate mode, reading, analysis, and logging remain active.
 - Sensitive actions and system modifications must not execute for real while `--simulate` is present.
 
-### Prerequisites
+### 7.5 Prerequisites
 
 - Support prerequisite verification before execution.
 - `--prerequis` must list prerequisites and report each one as satisfied or missing.
 - If something is missing, handle it cleanly and propose `--install`.
 - A skip path may exist when appropriate.
 
-## Runtime output, logs, and artifacts
+## 8. Runtime output, logs, and artifacts
 
-### Console explanations
+### 8.1 Console explanations
 
 - For each script execution, explain each step clearly in the console.
 - Mirror the same logic in comments and in logs.
 
-### Post-execution summary
+### 8.2 Post-execution summary
 
 - After execution, print a numbered list of all actions performed.
 
-### Logs
+### 8.3 Logs
 
 - Create a `./logs` directory next to the script if it does not already exist.
 - Write detailed logs there.
 - Log filename pattern must follow the repository rule form defined in this `AGENTS.md`:
   - `./logs/log.<script_name>.<full_timestamp>.<script_version>.log`
 
-### Results
+### 8.4 Results
 
 - Create a `./results` directory next to the script if it does not already exist.
 - Put generated content there.
@@ -254,16 +273,16 @@ Include these options whenever applicable and keep their behavior aligned with t
 - Example: `./results/<other_name>.<script_name>.vX.X.txt`
 - The destination folder for results must be overridable with `--dest_dir`.
 
-## Sudo and ready-to-use behavior
+## 9. Sudo and ready-to-use behavior
 
 - Prefer scripts that are ready to use immediately.
 - Always put `sudo` inside the script.
 - Do not require the user to run `sudo ./script.sh`.
 - Prefer zero external sudo.
 
-## Documentation generation rules
+## 10. Documentation generation rules
 
-### Automatic files
+### 10.1 Automatic files
 
 For script projects, on first creation generate without asking:
 
@@ -272,11 +291,11 @@ For script projects, on first creation generate without asking:
 - `./INSTALL.md`
 - `./WHY.md`
 
-### Major version updates
+### 10.2 Major version updates
 
 - On a major version bump (e.g. `3.2.0` → `4.0.0`), ask the user before updating `README.md` and `CHANGELOG.md`.
 
-### Update behavior
+### 10.3 Update behavior
 
 - Documentation maintenance is mandatory on script-related tasks, not optional.
 - For any script modification, check `./README.md`, `./CHANGELOG.md`, `./INSTALL.md`, and `./WHY.md` in the same task and update them when applicable.
@@ -290,23 +309,23 @@ For script projects, on first creation generate without asking:
   - script version
   - authors and contacts
 
-### CHANGELOG.md content
+### 10.4 CHANGELOG.md content
 
 - `CHANGELOG.md` must exist in `./`.
 - It must contain the version number, exact date and time, author name, and the full list of changes with a short description for each point.
 - Keep the complete history of all versions.
 - Never remove older versions.
 
-## Metadata rules for documents and artifacts
+## 11. Metadata rules for documents and artifacts
 
-### Executable non-shell scripts
+### 11.1 Executable non-shell scripts
 
 - Executable scripts written in other languages (`.py`, `.js`, `.java`, `.ps1`, etc.) must carry the same header information as shell scripts.
 - Only the comment syntax changes with the language.
 - Place the header at the beginning of the file, after the shebang if applicable.
 - Apply the same versioning and changelog rules as for shell scripts.
 
-### Markdown documents
+### 11.2 Markdown documents
 
 - A standalone `.md` document must start with a metadata block before the first title.
 - The metadata must contain at minimum: document name or title, author, email, version, date and time.
@@ -315,7 +334,7 @@ For script projects, on first creation generate without asking:
 ```md
 <!--
 Document : <Full document name>
-Auteur : Bruno DELNOZ
+Author : Bruno DELNOZ
 Email : bruno.delnoz@protonmail.com
 Version : vX.X.X
 Date : YYYY-MM-DD HH:MM
@@ -326,13 +345,13 @@ Date : YYYY-MM-DD HH:MM
 - No changelog is required in a standalone `.md` document.
 - If a `.md` file is generated as script documentation, it must also follow the documentation rules above.
 
-### Text documents
+### 11.3 Text documents
 
 - A standalone `.txt` document must start with a metadata block.
 - The metadata must contain at minimum: document name or title, author, email, version, date and time.
 - No changelog is required in a standalone `.txt` document.
 
-## Repository expectations for Codex and Claude Code
+## 12. Repository expectations for Codex and Claude Code
 
 - Treat this file as repository-wide instructions.
 - Apply these rules before proposing code changes, reviews, or generated artifacts.
